@@ -24,7 +24,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
   template: `
     <section class="mb-6 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
       <div>
-        <div class="eyebrow">Visión gerencial · 04 noviembre 2026</div>
+        <div class="eyebrow">Visión operativa · {{ referenceDate() | date: 'dd MMMM yyyy' }}</div>
         <h1 class="section-heading mt-1">El taller, de un vistazo</h1>
         <p class="section-copy">
           Indicadores derivados de las órdenes, movimientos y horas registradas.
@@ -105,20 +105,24 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                 <th>Cliente</th>
                 <th>Avance</th>
                 <th>Entrega</th>
-                <th>Riesgo</th>
+                @if (canSeeFinancial()) {
+                  <th>Riesgo económico</th>
+                }
               </tr>
             </thead>
             <tbody>
               @for (order of visibleOrders(); track order.id) {
                 <tr>
-                  <td>
-                    <a [routerLink]="['/ordenes', order.id]" class="font-extrabold">{{
-                      order.number
-                    }}</a>
-                    <div class="text-xs text-slate-500">
-                      {{ order.vehicle }} · {{ order.service }}
-                    </div>
-                  </td>
+                  @if (canSeeFinancial()) {
+                    <td>
+                      <a [routerLink]="['/ordenes', order.id]" class="font-extrabold">{{
+                        order.number
+                      }}</a>
+                      <div class="text-xs text-slate-500">
+                        {{ order.vehicle }} · {{ order.service }}
+                      </div>
+                    </td>
+                  }
                   <td>{{ order.client }}</td>
                   <td>
                     <div class="flex items-center gap-2">
@@ -149,35 +153,39 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
           </table>
         </div>
       </article>
-      <article class="panel p-5">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="panel-title">Distribución de costos</h2>
-            <p class="mt-1 text-xs text-slate-500">Órdenes del filtro actual</p>
+      @if (canSeeFinancial()) {
+        <article class="panel p-5">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="panel-title">Distribución de costos</h2>
+              <p class="mt-1 text-xs text-slate-500">Órdenes del filtro actual</p>
+            </div>
+            <span class="stat-icon brand-soft"><span appLucide="ChartPie"></span></span>
           </div>
-          <span class="stat-icon brand-soft"><span appLucide="ChartPie"></span></span>
-        </div>
-        <div class="mx-auto mt-5 max-w-[300px]"><canvas #costChart></canvas></div>
-        <div class="mt-4 grid grid-cols-2 gap-3 text-xs">
-          <div class="rounded-xl bg-slate-50 p-3">
-            <div class="text-slate-500">Mayor componente</div>
-            <strong>{{ largestComponent() }}</strong>
+          <div class="mx-auto mt-5 max-w-[300px]"><canvas #costChart></canvas></div>
+          <div class="mt-4 grid grid-cols-2 gap-3 text-xs">
+            <div class="rounded-xl bg-slate-50 p-3">
+              <div class="text-slate-500">Mayor componente</div>
+              <strong>{{ largestComponent() }}</strong>
+            </div>
+            <div class="rounded-xl bg-slate-50 p-3">
+              <div class="text-slate-500">Desviación crítica</div>
+              <strong class="text-red-600">{{ criticalOrder() }}</strong>
+            </div>
           </div>
-          <div class="rounded-xl bg-slate-50 p-3">
-            <div class="text-slate-500">Desviación crítica</div>
-            <strong class="text-red-600">{{ criticalOrder() }}</strong>
-          </div>
-        </div>
-      </article>
+        </article>
+      }
     </section>
     <section class="mt-6 grid gap-6 lg:grid-cols-3">
-      <article class="panel p-5 lg:col-span-2">
-        <div>
-          <h2 class="panel-title">Costo de materiales por mes</h2>
-          <p class="mt-1 text-xs text-slate-500">Derivado de los movimientos valorizados</p>
-        </div>
-        <div class="mt-5 h-64"><canvas #trendChart></canvas></div>
-      </article>
+      @if (canSeeFinancial()) {
+        <article class="panel p-5 lg:col-span-2">
+          <div>
+            <h2 class="panel-title">Costo de materiales por mes</h2>
+            <p class="mt-1 text-xs text-slate-500">Derivado de los movimientos valorizados</p>
+          </div>
+          <div class="mt-5 h-64"><canvas #trendChart></canvas></div>
+        </article>
+      }
       <article class="panel">
         <div class="panel-header"><h2 class="panel-title">Alertas recientes</h2></div>
         <div class="p-5">
@@ -227,14 +235,20 @@ export class DashboardPage implements AfterViewInit, OnDestroy {
     this.filteredOrders().filter((order) => order.salePrice !== null),
   );
   readonly activeCount = computed(() => this.store.activeOrders().length);
+  readonly referenceDate = computed(() => {
+    const dates = [
+      ...this.store.state().workOrders.map((item) => item.intakeDate),
+      ...this.store.state().movements.map((item) => item.createdAt),
+      ...this.store.state().timeEntries.map((item) => item.date),
+    ].filter(Boolean);
+    return new Date(Math.max(...dates.map((item) => new Date(item).getTime())));
+  });
   readonly dueSoon = computed(
     () =>
-      this.store
-        .activeOrders()
-        .filter(
-          (order) =>
-            new Date(order.dueDate).getTime() - new Date('2026-11-04').getTime() <= 7 * 86400000,
-        ).length,
+      this.store.activeOrders().filter((order) => {
+        const difference = new Date(order.dueDate).getTime() - this.referenceDate().getTime();
+        return difference >= 0 && difference <= 7 * 86400000;
+      }).length,
   );
   readonly criticalStock = computed(
     () =>
@@ -243,10 +257,11 @@ export class DashboardPage implements AfterViewInit, OnDestroy {
   );
   readonly visibleOrders = computed(() =>
     [...this.filteredOrders()]
-      .sort(
-        (a, b) =>
-          (this.profit(a.id)?.projectedMargin ?? Infinity) -
-          (this.profit(b.id)?.projectedMargin ?? Infinity),
+      .sort((a, b) =>
+        this.canSeeFinancial()
+          ? (this.profit(a.id)?.projectedMargin ?? Infinity) -
+            (this.profit(b.id)?.projectedMargin ?? Infinity)
+          : a.dueDate.localeCompare(b.dueDate),
       )
       .slice(0, 6),
   );
@@ -329,13 +344,22 @@ export class DashboardPage implements AfterViewInit, OnDestroy {
           },
         }),
       );
-    const months = ['Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov'];
-    const values = months.map((_, index) =>
+    const formatter = new Intl.DateTimeFormat('es-CL', { month: 'short', year: '2-digit' });
+    const periods = Array.from({ length: 6 }, (_, offset) => {
+      const date = new Date(this.referenceDate());
+      date.setDate(1);
+      date.setMonth(date.getMonth() - (5 - offset));
+      return date;
+    });
+    const months = periods.map((date) => formatter.format(date));
+    const values = periods.map((period) =>
       this.store
         .state()
         .movements.filter(
           (movement) =>
-            new Date(movement.createdAt).getMonth() === index + 5 && movement.allocationDelta > 0,
+            new Date(movement.createdAt).getMonth() === period.getMonth() &&
+            new Date(movement.createdAt).getFullYear() === period.getFullYear() &&
+            movement.allocationDelta > 0,
         )
         .reduce((sum, movement) => sum + movement.allocationDelta * movement.unitCost, 0),
     );

@@ -102,9 +102,11 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                     }
                   </div>
                 </div>
-                <button class="btn-primary self-start" (click)="selectRequest(request)">
-                  <span appLucide="PackageCheck" [iconSize]="17"></span>Revisar entrega
-                </button>
+                @if (canOperate()) {
+                  <button class="btn-primary self-start" (click)="selectRequest(request)">
+                    <span appLucide="PackageCheck" [iconSize]="17"></span>Revisar entrega
+                  </button>
+                }
               </div>
               @if (request.excessJustification) {
                 <div
@@ -129,24 +131,32 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
       <article class="panel p-5">
         <div class="flex items-center justify-between">
           <h2 class="panel-title">Operaciones rápidas</h2>
-          <span class="badge-info">Costo histórico</span>
+          @if (canSeeCosts()) {
+            <span class="badge-info">Costo histórico</span>
+          }
         </div>
-        <div class="mt-5 grid grid-cols-2 gap-2">
-          <button
-            class="operation-tab"
-            [class.operation-tab-active]="operation() === 'return'"
-            (click)="operation.set('return')"
-          >
-            <span appLucide="Undo2"></span>Devolución</button
-          ><button
-            class="operation-tab"
-            [class.operation-tab-active]="operation() === 'transfer'"
-            (click)="operation.set('transfer')"
-          >
-            <span appLucide="ArrowRightLeft"></span>Transferencia
-          </button>
-        </div>
-        @if (operation() === 'return') {
+        @if (canOperate()) {
+          <div class="mt-5 grid grid-cols-2 gap-2">
+            <button
+              class="operation-tab"
+              [class.operation-tab-active]="operation() === 'return'"
+              (click)="operation.set('return')"
+            >
+              <span appLucide="Undo2"></span>Devolución</button
+            ><button
+              class="operation-tab"
+              [class.operation-tab-active]="operation() === 'transfer'"
+              (click)="operation.set('transfer')"
+            >
+              <span appLucide="ArrowRightLeft"></span>Transferencia
+            </button>
+          </div>
+        } @else {
+          <p class="mt-5 rounded-xl bg-slate-50 p-4 text-xs leading-5 text-slate-600">
+            El rol actual puede consultar vales, pero no ejecutar devoluciones ni transferencias.
+          </p>
+        }
+        @if (canOperate() && operation() === 'return') {
           <form class="mt-5 space-y-4" (ngSubmit)="registerReturn()">
             <label
               ><span class="field-label">Vale original</span
@@ -183,7 +193,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
             ><button class="btn-primary w-full">Registrar devolución</button>
           </form>
         }
-        @if (operation() === 'transfer') {
+        @if (canOperate() && operation() === 'transfer') {
           <form class="mt-5 space-y-4" (ngSubmit)="registerTransfer()">
             <label
               ><span class="field-label">OT origen</span
@@ -239,7 +249,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
               <th>OT / unidad</th>
               <th>Solicita / recibe</th>
               <th>Líneas</th>
-              <th>Total</th>
+              @if (canSeeCosts()) {
+                <th>Total</th>
+              }
               <th></th>
             </tr>
           </thead>
@@ -254,7 +266,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                 </td>
                 <td>{{ voucher.requester }} / {{ voucher.receiver }}</td>
                 <td>{{ voucher.lines.length }}</td>
-                <td class="font-extrabold">{{ clp(voucherTotal(voucher)) }}</td>
+                @if (canSeeCosts()) {
+                  <td class="font-extrabold">{{ clp(voucherTotal(voucher)) }}</td>
+                }
                 <td>
                   <button class="btn-secondary" (click)="viewVoucher(voucher)">
                     <span appLucide="Printer" [iconSize]="16"></span>Ver
@@ -414,7 +428,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                 <th class="p-3">Código</th>
                 <th class="p-3">Material</th>
                 <th class="p-3 text-right">Cantidad</th>
-                <th class="p-3 text-right">Costo</th>
+                @if (canSeeCosts()) {
+                  <th class="p-3 text-right">Costo</th>
+                }
               </tr>
             </thead>
             <tbody>
@@ -425,7 +441,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   <td class="p-3 text-right">
                     {{ line.quantity }} {{ product(line.productId)?.unit }}
                   </td>
-                  <td class="p-3 text-right">{{ clp(line.quantity * line.unitCost) }}</td>
+                  @if (canSeeCosts()) {
+                    <td class="p-3 text-right">{{ clp(line.quantity * line.unitCost) }}</td>
+                  }
                 </tr>
               }
             </tbody>
@@ -460,6 +478,14 @@ export class WarehousePage {
   readonly scannedProduct = signal<ReturnType<DemoStore['product']>>(undefined);
   readonly operation = signal<'return' | 'transfer'>('return');
   readonly toast = signal('');
+  readonly canSeeCosts = computed(() =>
+    ['Administrador', 'Gerente', 'Jefe de taller', 'Bodeguero', 'Compras'].includes(
+      this.store.state().role,
+    ),
+  );
+  readonly canOperate = computed(() =>
+    ['Administrador', 'Jefe de taller', 'Bodeguero'].includes(this.store.state().role),
+  );
   readonly operationalOrders = computed(() =>
     this.store.state().workOrders.filter((order) => order.financialDataSimulated),
   );
@@ -534,6 +560,7 @@ export class WarehousePage {
     const request = this.selectedRequest();
     if (!request) return;
     try {
+      if (!this.canOperate()) throw new Error('El rol actual no puede despachar materiales.');
       const deliveries = request.lines
         .map((line) => ({ lineId: line.id, quantity: Number(this.deliveryAmounts[line.id] ?? 0) }))
         .filter((line) => line.quantity > 0);
@@ -575,6 +602,7 @@ export class WarehousePage {
   }
   registerReturn() {
     try {
+      if (!this.canOperate()) throw new Error('El rol actual no puede registrar devoluciones.');
       this.store.returnMaterial(
         this.returnOrder,
         this.returnProduct,
@@ -588,6 +616,7 @@ export class WarehousePage {
   }
   registerTransfer() {
     try {
+      if (!this.canOperate()) throw new Error('El rol actual no puede registrar transferencias.');
       this.store.transferMaterial(
         this.transferFrom,
         this.transferTo,

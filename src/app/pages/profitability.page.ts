@@ -70,24 +70,30 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
               </div>
             </div>
           </section>
-          <section class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <section class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
             <article class="stat-card">
               <div class="stat-label">Precio acordado</div>
               <div class="stat-value text-xl">{{ clp(p.income) }}</div>
             </article>
             <article class="stat-card">
               <div class="stat-label">Presupuesto total</div>
-              <div class="stat-value text-xl">{{ clp(budgetTotal()) }}</div>
+              <div class="stat-value text-xl">{{ clp(p.originalBudget) }}</div>
             </article>
             <article class="stat-card">
               <div class="stat-label">Costo acumulado</div>
               <div class="stat-value text-xl">
-                {{ clp(p.productionCost + current.adminActual) }}
+                {{ clp(p.accumulatedCost) }}
               </div>
             </article>
             <article class="stat-card">
               <div class="stat-label">Pendiente estimado</div>
-              <div class="stat-value text-xl">{{ clp(current.pendingCostEstimate) }}</div>
+              <div class="stat-value text-xl">{{ clp(p.pendingCost) }}</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-label">Costo adicional</div>
+              <div class="stat-value text-xl" [class.text-red-600]="p.additionalCost > 0">
+                {{ clp(p.additionalCost) }}
+              </div>
             </article>
             <article class="stat-card">
               <div class="stat-label">Costo final proyectado</div>
@@ -109,6 +115,104 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
               </div>
             </section>
           }
+          <section class="mt-6 grid gap-6 xl:grid-cols-2">
+            <article class="panel p-5">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 class="panel-title">Costos pendientes estimados</h2>
+                  <p class="mt-1 text-xs leading-5 text-slate-500">
+                    {{ current.pendingCosts?.explanation || 'Estimación histórica sin desglose.' }}
+                  </p>
+                </div>
+                <button class="btn-secondary" (click)="recalculate()">
+                  <span appLucide="RefreshCw" [iconSize]="16"></span>Recalcular
+                </button>
+              </div>
+              <div class="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
+                <div class="rounded-xl bg-slate-50 p-3">
+                  <strong>Materiales</strong
+                  ><span class="mt-1 block">{{ clp(current.pendingCosts?.materials ?? 0) }}</span>
+                </div>
+                <div class="rounded-xl bg-slate-50 p-3">
+                  <strong>Mano de obra</strong
+                  ><span class="mt-1 block">{{ clp(current.pendingCosts?.labor ?? 0) }}</span>
+                </div>
+                <div class="rounded-xl bg-slate-50 p-3">
+                  <strong>Servicios</strong
+                  ><span class="mt-1 block">{{
+                    clp(current.pendingCosts?.externalServices ?? 0)
+                  }}</span>
+                </div>
+                <div class="rounded-xl bg-slate-50 p-3">
+                  <strong>Otros directos</strong
+                  ><span class="mt-1 block">{{ clp(current.pendingCosts?.otherDirect ?? 0) }}</span>
+                </div>
+                <div class="rounded-xl bg-slate-50 p-3">
+                  <strong>Indirectos</strong
+                  ><span class="mt-1 block">{{
+                    clp(current.pendingCosts?.productionOverhead ?? 0)
+                  }}</span>
+                </div>
+                <div class="rounded-xl bg-slate-50 p-3">
+                  <strong>Administración</strong
+                  ><span class="mt-1 block">{{
+                    clp(current.pendingCosts?.administration ?? 0)
+                  }}</span>
+                </div>
+              </div>
+              <div
+                class="mt-4 rounded-xl border border-slate-200 p-3 text-xs leading-5 text-slate-600"
+              >
+                <strong>Criterio indirecto:</strong> {{ current.productionOverheadAllocation
+                }}<br />
+                <strong>Criterio administrativo:</strong> {{ current.adminAllocation }}
+              </div>
+            </article>
+            <article class="panel p-5">
+              <h2 class="panel-title">Registrar costo directo</h2>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <label
+                  ><span class="field-label">Tipo</span
+                  ><select class="field" [(ngModel)]="costType">
+                    <option>Servicio externo</option>
+                    <option>Otro costo directo</option>
+                  </select></label
+                >
+                <label
+                  ><span class="field-label">Fecha</span
+                  ><input class="field" type="date" [(ngModel)]="costDate"
+                /></label>
+                <label class="sm:col-span-2"
+                  ><span class="field-label">Descripción</span
+                  ><input
+                    class="field"
+                    [(ngModel)]="costDescription"
+                    placeholder="Ej. servicio de rectificado"
+                /></label>
+                <label
+                  ><span class="field-label">Proveedor</span
+                  ><input class="field" [(ngModel)]="costProvider"
+                /></label>
+                <label
+                  ><span class="field-label">Monto neto</span
+                  ><input class="field" type="number" min="1" [(ngModel)]="costAmount"
+                /></label>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button class="btn-primary" (click)="registerCost()">Guardar costo</button>
+                @if (canClose()) {
+                  <button class="btn-secondary" (click)="closeEconomic()">
+                    Cerrar económicamente
+                  </button>
+                }
+              </div>
+              @if (message()) {
+                <p class="mt-3 rounded-xl bg-slate-50 p-3 text-xs font-bold text-slate-700">
+                  {{ message() }}
+                </p>
+              }
+            </article>
+          </section>
           <section class="mt-6 grid gap-6 xl:grid-cols-[1.2fr_.8fr]">
             <article class="panel">
               <div class="panel-header">
@@ -221,8 +325,17 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
 export class ProfitabilityPage {
   readonly store = inject(DemoStore);
   readonly selectedId = signal('ot-125');
+  costType: 'Servicio externo' | 'Otro costo directo' = 'Servicio externo';
+  costDate = new Date().toISOString().slice(0, 10);
+  costDescription = '';
+  costProvider = '';
+  costAmount = 0;
+  readonly message = signal('');
   readonly authorized = computed(() =>
     ['Administrador', 'Gerente', 'Jefe de taller'].includes(this.store.state().role),
+  );
+  readonly canClose = computed(() =>
+    ['Administrador', 'Gerente'].includes(this.store.state().role),
   );
   readonly financialOrders = computed(() =>
     this.store.state().workOrders.filter((order) => order.salePrice !== null),
@@ -274,5 +387,38 @@ export class ProfitabilityPage {
           minimumFractionDigits: 1,
           maximumFractionDigits: 1,
         }).format(value);
+  }
+  recalculate(): void {
+    try {
+      this.store.recalculatePendingCosts(this.selectedId());
+      this.message.set('Costos pendientes recalculados sin volver a sumar gastos acumulados.');
+    } catch (error) {
+      this.message.set(error instanceof Error ? error.message : 'No fue posible recalcular.');
+    }
+  }
+  registerCost(): void {
+    try {
+      this.store.registerDirectCost(
+        this.selectedId(),
+        this.costType,
+        this.costDate,
+        this.costDescription,
+        Number(this.costAmount),
+        this.costProvider,
+      );
+      this.costDescription = '';
+      this.costAmount = 0;
+      this.message.set('Costo registrado. Recalcula el pendiente para actualizar la proyección.');
+    } catch (error) {
+      this.message.set(error instanceof Error ? error.message : 'No fue posible guardar el costo.');
+    }
+  }
+  closeEconomic(): void {
+    try {
+      this.store.closeEconomic(this.selectedId());
+      this.message.set('Cierre económico registrado. El resultado final ya está disponible.');
+    } catch (error) {
+      this.message.set(error instanceof Error ? error.message : 'No fue posible cerrar la OT.');
+    }
   }
 }

@@ -41,7 +41,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
         <article class="stat-card">
           <div class="stat-label">Entrega prevista</div>
           <div class="stat-value text-xl">{{ current.dueDate | date: 'dd MMM' }}</div>
-          <div class="stat-label">{{ daysToDue() }} días desde fecha demo</div>
+          <div class="stat-label">{{ daysToDue() }} días desde el último registro</div>
         </article>
         <article class="stat-card">
           <div class="stat-label">Etapas activas</div>
@@ -119,43 +119,50 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                     {{ stage.plannedHours }} h plan
                   </div>
                 </div>
-                <label
-                  ><span class="field-label">Avance {{ stage.progress }}%</span
-                  ><input
-                    class="w-full accent-[var(--fraespa-green)]"
-                    type="range"
-                    min="0"
-                    max="100"
-                    [ngModel]="stage.progress"
-                    (change)="saveStageProgress(stage.id, $any($event.target).value)" /></label
-                ><button class="btn-secondary" (click)="openHours(stage.id)">
-                  <span appLucide="Clock3" [iconSize]="16"></span>Registrar horas
-                </button>
+                @if (canManageProgress()) {
+                  <label
+                    ><span class="field-label">Avance {{ stage.progress }}%</span
+                    ><input
+                      class="w-full accent-[var(--fraespa-green)]"
+                      type="range"
+                      min="0"
+                      max="100"
+                      [ngModel]="stage.progress"
+                      (change)="saveStageProgress(stage.id, $any($event.target).value)"
+                  /></label>
+                }
+                @if (canRecordHours()) {
+                  <button class="btn-secondary" (click)="openHours(stage.id)">
+                    <span appLucide="Clock3" [iconSize]="16"></span>Registrar horas
+                  </button>
+                }
               </div>
             }
           </div>
         </article>
-        <article class="panel p-5">
-          <h2 class="panel-title">Ajuste manual excepcional</h2>
-          <p class="mt-1 text-xs leading-5 text-slate-500">
-            Requiere una justificación auditable y no altera horas ni materiales.
-          </p>
-          <div class="mt-5 text-center text-5xl font-black text-[var(--fraespa-green-dark)]">
-            {{ newProgress }}%
-          </div>
-          <input
-            class="mt-5 w-full accent-[var(--fraespa-green)]"
-            type="range"
-            min="0"
-            max="100"
-            [(ngModel)]="newProgress"
-          /><label class="mt-4 block"
-            ><span class="field-label">Justificación obligatoria</span
-            ><textarea class="field" rows="3" [(ngModel)]="progressReason"></textarea></label
-          ><button class="btn-primary mt-4 w-full" (click)="saveProgress()">
-            <span appLucide="Save"></span>Guardar ajuste
-          </button>
-        </article>
+        @if (canManageProgress()) {
+          <article class="panel p-5">
+            <h2 class="panel-title">Ajuste manual excepcional</h2>
+            <p class="mt-1 text-xs leading-5 text-slate-500">
+              Requiere una justificación auditable y no altera horas ni materiales.
+            </p>
+            <div class="mt-5 text-center text-5xl font-black text-[var(--fraespa-green-dark)]">
+              {{ newProgress }}%
+            </div>
+            <input
+              class="mt-5 w-full accent-[var(--fraespa-green)]"
+              type="range"
+              min="0"
+              max="100"
+              [(ngModel)]="newProgress"
+            /><label class="mt-4 block"
+              ><span class="field-label">Justificación obligatoria</span
+              ><textarea class="field" rows="3" [(ngModel)]="progressReason"></textarea></label
+            ><button class="btn-primary mt-4 w-full" (click)="saveProgress()">
+              <span appLucide="Save"></span>Guardar ajuste
+            </button>
+          </article>
+        }
       </section>
       @if (selectedStage) {
         <div
@@ -220,6 +227,12 @@ export class ProductionPage {
   readonly store = inject(DemoStore);
   readonly selectedId = signal('ot-125');
   readonly toast = signal('');
+  readonly canManageProgress = computed(() =>
+    ['Administrador', 'Jefe de taller'].includes(this.store.state().role),
+  );
+  readonly canRecordHours = computed(() =>
+    ['Administrador', 'Jefe de taller', 'Trabajador'].includes(this.store.state().role),
+  );
   readonly activeOrders = computed(() =>
     this.store
       .state()
@@ -243,14 +256,18 @@ export class ProductionPage {
     () =>
       this.order()
         ?.stages.map((stage) => stage.plannedStart)
-        .sort()[0] ?? '2026-11-02',
+        .sort()[0] ??
+      this.order()?.intakeDate ??
+      new Date().toISOString().slice(0, 10),
   );
   readonly timelineEnd = computed(
     () =>
       this.order()
         ?.stages.map((stage) => stage.plannedEnd)
         .sort()
-        .at(-1) ?? '2026-11-15',
+        .at(-1) ??
+      this.order()?.dueDate ??
+      new Date().toISOString().slice(0, 10),
   );
   readonly timelineDays = computed(() =>
     Array.from({ length: 14 }, (_, index) =>
@@ -263,7 +280,7 @@ export class ProductionPage {
   progressReason = '';
   selectedStage = '';
   employeeId = 'emp-jhony';
-  entryDate = '2026-11-04';
+  entryDate = new Date().toISOString().slice(0, 10);
   hours = 2;
   hourType: 'Normal' | 'Extra' | 'Reproceso' = 'Normal';
   selectOrder(id: string) {
@@ -272,9 +289,12 @@ export class ProductionPage {
   }
   daysToDue() {
     const due = this.order()?.dueDate;
-    return due
-      ? Math.ceil((new Date(due).getTime() - new Date('2026-11-04').getTime()) / 86400000)
-      : 0;
+    const dates = [
+      ...this.store.state().movements.map((item) => item.createdAt),
+      ...this.store.state().timeEntries.map((item) => item.date),
+    ];
+    const reference = new Date(Math.max(...dates.map((item) => new Date(item).getTime())));
+    return due ? Math.ceil((new Date(due).getTime() - reference.getTime()) / 86400000) : 0;
   }
   ganttColumn(start: string, end: string) {
     const base = new Date(this.timelineStart() + 'T00:00:00').getTime();
@@ -286,11 +306,13 @@ export class ProductionPage {
     return `${Math.min(14, first)} / span ${Math.min(span, 15 - Math.min(14, first))}`;
   }
   openHours(stageId: string) {
+    if (!this.canRecordHours()) return;
     this.selectedStage = stageId;
     this.hours = 2;
   }
   saveStageProgress(stageId: string, value: number) {
     try {
+      if (!this.canManageProgress()) throw new Error('El rol actual no puede cambiar avances.');
       this.store.updateStageProgress(this.selectedId(), stageId, Number(value));
     } catch (error) {
       this.show(this.message(error));
@@ -298,6 +320,7 @@ export class ProductionPage {
   }
   saveProgress() {
     try {
+      if (!this.canManageProgress()) throw new Error('El rol actual no puede ajustar avances.');
       this.store.updateProgress(this.selectedId(), Number(this.newProgress), this.progressReason);
       this.progressReason = '';
       this.show('Ajuste manual guardado con trazabilidad.');
@@ -307,6 +330,7 @@ export class ProductionPage {
   }
   saveHours() {
     try {
+      if (!this.canRecordHours()) throw new Error('El rol actual no puede registrar horas.');
       this.store.recordHours(
         this.selectedId(),
         this.selectedStage,

@@ -186,7 +186,12 @@ export class ReportsPage {
     {
       icon: 'Users',
       title: 'Consumo por trabajador',
-      detail: 'Materiales solicitados y recibidos por responsable.',
+      detail: 'Materiales efectivamente recibidos según vales emitidos.',
+    },
+    {
+      icon: 'Clock3',
+      title: 'Horas y mano de obra',
+      detail: 'Partes diarios, horas, tipo y costo histórico por trabajador.',
     },
     {
       icon: 'ChartNoAxesCombined',
@@ -236,7 +241,45 @@ export class ReportsPage {
       file = 'movimientos-bodega';
     } else if (type === 'Consumo por trabajador') {
       rows = [
-        ['Fecha', 'Trabajador', 'OT', 'Etapa', 'Horas', 'Tipo', 'Costo'],
+        [
+          'Fecha',
+          'Trabajador receptor',
+          'Solicitante',
+          'OT',
+          'Vale',
+          'Etapa',
+          'Producto',
+          'Descripción',
+          'Cantidad',
+          'Unidad',
+          'Importe',
+        ],
+        ...this.store
+          .state()
+          .vouchers.filter((voucher) => voucher.status === 'Emitido')
+          .flatMap((voucher) =>
+            voucher.lines.map((line) => {
+              const product = this.store.product(line.productId);
+              return [
+                voucher.createdAt,
+                voucher.receiver,
+                voucher.requester,
+                this.store.order(voucher.workOrderId)?.number ?? voucher.workOrderId,
+                voucher.number,
+                voucher.stage,
+                product?.code ?? line.productId,
+                product?.description ?? '',
+                line.quantity,
+                product?.unit ?? '',
+                line.quantity * line.unitCost,
+              ];
+            }),
+          ),
+      ];
+      file = 'materiales-recibidos-trabajador';
+    } else if (type === 'Horas y mano de obra') {
+      rows = [
+        ['Fecha', 'Trabajador', 'OT', 'Etapa', 'Horas', 'Tipo', 'Tarifa histórica', 'Costo'],
         ...this.store
           .state()
           .timeEntries.map((item) => [
@@ -246,34 +289,31 @@ export class ReportsPage {
             item.stageId,
             item.hours,
             item.hourType,
+            item.hourlyCost,
             item.hours * item.hourlyCost,
           ]),
       ];
-      file = 'consumo-trabajadores';
+      file = 'horas-mano-obra';
     } else if (type === 'Rentabilidad mensual') {
       rows = [
         [
-          'Orden',
-          'Cliente',
+          'Periodo',
+          'Órdenes',
+          'Órdenes conciliadas',
           'Ingreso',
           'Costo proyectado',
           'Resultado proyectado',
-          'Cierre económico',
+          'Resultado final conciliado',
         ],
-        ...this.store
-          .state()
-          .workOrders.filter((item) => item.salePrice !== null)
-          .map((item) => {
-            const p = this.store.profitability(item.id)!;
-            return [
-              item.number,
-              item.client,
-              p.income ?? '',
-              p.projectedFinalCost,
-              p.projectedMargin ?? '',
-              item.economicStatus,
-            ];
-          }),
+        ...this.monthlyProfitabilityRows().map((item) => [
+          item.period,
+          item.orders,
+          item.closedOrders,
+          item.income,
+          item.projectedCost,
+          item.projectedResult,
+          item.closedOrders > 0 ? item.finalResult : '',
+        ]),
       ];
       file = 'rentabilidad';
     } else {
@@ -322,5 +362,42 @@ export class ReportsPage {
   private show(message: string) {
     this.toast.set(message);
     setTimeout(() => this.toast.set(''), 3000);
+  }
+  private monthlyProfitabilityRows() {
+    const periods = new Map<
+      string,
+      {
+        period: string;
+        orders: number;
+        closedOrders: number;
+        income: number;
+        projectedCost: number;
+        projectedResult: number;
+        finalResult: number;
+      }
+    >();
+    for (const order of this.store.state().workOrders.filter((item) => item.salePrice !== null)) {
+      const result = this.store.profitability(order.id)!;
+      const period = (order.economicClosedAt ?? order.dueDate).slice(0, 7);
+      const row = periods.get(period) ?? {
+        period,
+        orders: 0,
+        closedOrders: 0,
+        income: 0,
+        projectedCost: 0,
+        projectedResult: 0,
+        finalResult: 0,
+      };
+      row.orders += 1;
+      row.income += result.income ?? 0;
+      row.projectedCost += result.projectedFinalCost;
+      row.projectedResult += result.projectedMargin ?? 0;
+      if (result.finalManagementResult !== null) {
+        row.closedOrders += 1;
+        row.finalResult += result.finalManagementResult;
+      }
+      periods.set(period, row);
+    }
+    return [...periods.values()].sort((a, b) => a.period.localeCompare(b.period));
   }
 }

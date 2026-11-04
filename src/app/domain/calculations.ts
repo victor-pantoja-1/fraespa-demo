@@ -1,4 +1,11 @@
-import { InventoryMovement, Product, Profitability, TimeEntry, WorkOrder } from './models';
+import {
+  InventoryMovement,
+  PendingCostBreakdown,
+  Product,
+  Profitability,
+  TimeEntry,
+  WorkOrder,
+} from './models';
 
 const MONEY_PRECISION = 100;
 export const roundMoney = (value: number): number =>
@@ -74,6 +81,67 @@ export function laborCost(order: WorkOrder, timeEntries: TimeEntry[] = []): numb
   );
 }
 
+export function originalBudget(order: WorkOrder): number {
+  return roundMoney(
+    order.materialBudget +
+      order.laborBudget +
+      order.serviceBudget +
+      order.otherDirectBudget +
+      order.productionOverheadBudget +
+      order.adminBudget,
+  );
+}
+
+export function actualCostBreakdown(
+  order: WorkOrder,
+  movements: InventoryMovement[],
+  timeEntries: TimeEntry[] = [],
+): Omit<PendingCostBreakdown, 'updatedAt' | 'explanation' | 'source'> {
+  return {
+    materials: materialCost(order.id, movements),
+    labor: laborCost(order, timeEntries),
+    externalServices: roundMoney(order.externalServicesActual),
+    otherDirect: roundMoney(order.otherDirectActual),
+    productionOverhead: roundMoney(order.productionOverheadActual),
+    administration: roundMoney(order.adminActual),
+  };
+}
+
+export function recommendedPendingCosts(
+  order: WorkOrder,
+  movements: InventoryMovement[],
+  timeEntries: TimeEntry[] = [],
+  updatedAt = new Date().toISOString(),
+): PendingCostBreakdown {
+  const actual = actualCostBreakdown(order, movements, timeEntries);
+  return {
+    materials: roundMoney(Math.max(0, order.materialBudget - actual.materials)),
+    labor: roundMoney(Math.max(0, order.laborBudget - actual.labor)),
+    externalServices: roundMoney(Math.max(0, order.serviceBudget - actual.externalServices)),
+    otherDirect: roundMoney(Math.max(0, order.otherDirectBudget - actual.otherDirect)),
+    productionOverhead: roundMoney(
+      Math.max(0, order.productionOverheadBudget - actual.productionOverhead),
+    ),
+    administration: roundMoney(Math.max(0, order.adminBudget - actual.administration)),
+    updatedAt,
+    explanation:
+      'Saldo estimado por categoría: presupuesto original menos costo acumulado, sin volver a sumar gastos ya registrados.',
+    source: 'Recalculado desde presupuesto',
+  };
+}
+
+export function pendingCostTotal(pending?: PendingCostBreakdown): number {
+  if (!pending) return 0;
+  return roundMoney(
+    pending.materials +
+      pending.labor +
+      pending.externalServices +
+      pending.otherDirect +
+      pending.productionOverhead +
+      pending.administration,
+  );
+}
+
 export function stageHours(orderId: string, stageId: string, timeEntries: TimeEntry[]): number {
   return roundMoney(
     timeEntries
@@ -113,9 +181,13 @@ export function profitability(
   const managementResult =
     income === null ? null : roundMoney(income - productionCost - order.adminActual);
   const contributionMargin = income === null ? null : roundMoney(income - directCost);
-  const projectedFinalCost = roundMoney(
-    productionCost + order.adminActual + order.pendingCostEstimate,
-  );
+  const accumulatedCost = roundMoney(productionCost + order.adminActual);
+  const budget = originalBudget(order);
+  const pendingCost = order.pendingCosts
+    ? pendingCostTotal(order.pendingCosts)
+    : roundMoney(order.pendingCostEstimate);
+  const projectedFinalCost = roundMoney(accumulatedCost + pendingCost);
+  const additionalCost = roundMoney(Math.max(0, projectedFinalCost - budget));
   const projectedMargin = income === null ? null : roundMoney(income - projectedFinalCost);
   const projectedMarginPct =
     income !== null && income > 0 && projectedMargin !== null ? projectedMargin / income : null;
@@ -145,6 +217,10 @@ export function profitability(
     finalManagementResult,
     finalMarginPct,
     contributionMargin,
+    originalBudget: budget,
+    accumulatedCost,
+    pendingCost,
+    additionalCost,
     projectedFinalCost,
     projectedMargin,
     projectedMarginPct,

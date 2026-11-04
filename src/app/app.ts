@@ -32,6 +32,12 @@ export class App {
   readonly sidebarOpen = signal(false);
   readonly notificationOpen = signal(false);
   readonly guideStep = signal(-1);
+  readonly guideBaseline = signal({
+    voucherIds: new Set<string>(),
+    movementIds: new Set<string>(),
+    timeEntryIds: new Set<string>(),
+    auditIds: new Set<string>(),
+  });
   readonly pageTitle = signal('Dashboard gerencial');
   readonly search = signal('');
   readonly roles: Role[] = [
@@ -185,8 +191,20 @@ export class App {
     void this.router.navigateByUrl(route);
   }
   startGuide(): void {
+    this.store.setRole('Administrador');
+    const state = this.store.state();
+    this.guideBaseline.set({
+      voucherIds: new Set(state.vouchers.map((item) => item.id)),
+      movementIds: new Set(state.movements.map((item) => item.id)),
+      timeEntryIds: new Set(state.timeEntries.map((item) => item.id)),
+      auditIds: new Set(state.audit.map((item) => item.id)),
+    });
     this.guideStep.set(0);
     void this.router.navigateByUrl(this.guide[0].route);
+  }
+  restartGuide(): void {
+    this.store.restoreDemo();
+    this.startGuide();
   }
   stopGuide(): void {
     this.guideStep.set(-1);
@@ -202,12 +220,50 @@ export class App {
   }
   guideReady(): boolean {
     const step = this.guideStep();
-    if (step === 6) return this.store.state().vouchers.length > 7;
+    const state = this.store.state();
+    const baseline = this.guideBaseline();
+    if (step === 0)
+      return state.agreements.some((item) => item.id === 'agr-abc' && item.status === 'Aprobada');
+    if (step === 1)
+      return state.intakes.some((item) => item.id === 'int-abc' && item.status === 'OT creada');
+    if (step === 2) return state.workOrders.some((item) => item.id === 'ot-125');
+    if (step === 3)
+      return state.workOrders.some(
+        (item) => item.id === 'ot-125' && item.assignedWorkers.includes('Jhony'),
+      );
+    if (step === 4)
+      return state.workOrders.some((item) => item.id === 'ot-125' && item.materialPlan.length > 0);
+    if (step === 5)
+      return state.requests.some(
+        (item) => item.id === 'r1' && ['Pendiente', 'Parcial'].includes(item.status),
+      );
+    if (step === 6) return state.vouchers.some((item) => !baseline.voucherIds.has(item.id));
+    if (step === 7)
+      return state.audit.some(
+        (item) =>
+          !baseline.auditIds.has(item.id) && item.title === 'Despacho con exceso autorizado',
+      );
     if (step === 8)
-      return this.store
-        .state()
-        .movements.some((item) => item.type === 'Devolución' && item.reference.startsWith('DEV-'));
-    if (step === 10) return this.store.state().timeEntries.length > 4;
-    return true;
+      return state.movements.some(
+        (item) =>
+          !baseline.movementIds.has(item.id) &&
+          ['Devolución', 'Transferencia salida', 'Transferencia entrada'].includes(item.type),
+      );
+    if (step === 9)
+      return (
+        state.vouchers.some((item) => !baseline.voucherIds.has(item.id)) ||
+        state.movements.some((item) => !baseline.movementIds.has(item.id))
+      );
+    if (step === 10) return state.timeEntries.some((item) => !baseline.timeEntryIds.has(item.id));
+    if (step === 11)
+      return (
+        state.workOrders.some((item) => item.economicStatus === 'Cerrada económicamente') &&
+        state.workOrders.some(
+          (item) =>
+            item.economicStatus !== 'Cerrada económicamente' &&
+            (this.store.profitability(item.id)?.projectedMargin ?? 0) < 0,
+        )
+      );
+    return false;
   }
 }

@@ -329,7 +329,9 @@ interface RequestDraftLine {
                   <th>Referencia</th>
                   <th>Material</th>
                   <th>Cantidad</th>
-                  <th>Costo</th>
+                  @if (canSeeFinancial()) {
+                    <th>Costo</th>
+                  }
                 </tr>
               </thead>
               <tbody>
@@ -342,7 +344,9 @@ interface RequestDraftLine {
                     <td class="font-extrabold">{{ movement.reference }}</td>
                     <td>{{ product(movement.productId)?.description }}</td>
                     <td>{{ movement.quantity }}</td>
-                    <td>{{ clp(movement.allocationDelta * movement.unitCost) }}</td>
+                    @if (canSeeFinancial()) {
+                      <td>{{ clp(movement.allocationDelta * movement.unitCost) }}</td>
+                    }
                   </tr>
                 }
               </tbody>

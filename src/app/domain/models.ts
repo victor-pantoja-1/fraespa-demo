@@ -53,6 +53,30 @@ export interface WorkStage {
   status: 'Pendiente' | 'En curso' | 'Completada' | 'Bloqueada';
 }
 
+export interface PendingCostBreakdown {
+  materials: number;
+  labor: number;
+  externalServices: number;
+  otherDirect: number;
+  productionOverhead: number;
+  administration: number;
+  updatedAt: string;
+  explanation: string;
+  source: 'Recalculado desde presupuesto' | 'Ajuste manual';
+}
+
+export interface DirectCostEntry {
+  id: string;
+  workOrderId: string;
+  type: 'Servicio externo' | 'Otro costo directo';
+  date: string;
+  description: string;
+  amount: number;
+  provider?: string;
+  reference?: string;
+  createdAt: string;
+}
+
 export interface WorkOrder {
   id: string;
   number: string;
@@ -85,6 +109,12 @@ export interface WorkOrder {
   productionOverheadActual: number;
   adminActual: number;
   pendingCostEstimate: number;
+  pendingCosts?: PendingCostBreakdown;
+  productionOverheadAllocation?: string;
+  adminAllocation?: string;
+  budgetExplanation?: string;
+  economicClosedAt?: string;
+  economicClosedBy?: string;
   laborRate: number;
   stages: WorkStage[];
   materialPlan: MaterialPlanLine[];
@@ -238,6 +268,7 @@ export interface DemoState {
   requests: MaterialRequest[];
   employees: Employee[];
   timeEntries: TimeEntry[];
+  directCostEntries: DirectCostEntry[];
   agreements: CommercialAgreement[];
   intakes: VehicleIntake[];
   audit: AuditEvent[];
@@ -260,6 +291,10 @@ export interface Profitability {
   finalManagementResult: number | null;
   finalMarginPct: number | null;
   contributionMargin: number | null;
+  originalBudget: number;
+  accumulatedCost: number;
+  pendingCost: number;
+  additionalCost: number;
   projectedFinalCost: number;
   projectedMargin: number | null;
   projectedMarginPct: number | null;
