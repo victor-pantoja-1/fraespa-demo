@@ -5,30 +5,327 @@ import { DemoStore } from '../services/demo-store.service';
 import { LucideIconDirective } from '../shared/lucide-icon.directive';
 
 @Component({
-  selector: 'app-production-page', standalone: true, imports: [CommonModule, FormsModule, LucideIconDirective],
+  selector: 'app-production-page',
+  standalone: true,
+  imports: [CommonModule, FormsModule, LucideIconDirective],
   template: `
-    <section class="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><div class="eyebrow">Planificación de taller</div><h1 class="section-heading mt-1">Producción y Gantt</h1><p class="section-copy">Avance físico, responsables y horas por etapa.</p></div><label class="w-full md:w-96"><span class="field-label">Orden activa</span><select class="field" [ngModel]="selectedId()" (ngModelChange)="selectOrder($event)">@for (order of activeOrders(); track order.id) { <option [value]="order.id">{{ order.number }} · {{ order.vehicle }}</option> }</select></label></section>
+    <section class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+      <div>
+        <div class="eyebrow">Planificación de taller</div>
+        <h1 class="section-heading mt-1">Producción y Gantt</h1>
+        <p class="section-copy">Fechas reales del plan, avance por etapa y horas por trabajador.</p>
+      </div>
+      <label class="w-full md:w-96"
+        ><span class="field-label">Orden activa</span
+        ><select class="field" [ngModel]="selectedId()" (ngModelChange)="selectOrder($event)">
+          @for (item of activeOrders(); track item.id) {
+            <option [value]="item.id">{{ item.number }} · {{ item.vehicle }}</option>
+          }
+        </select></label
+      >
+    </section>
     @if (order(); as current) {
-      <section class="mt-6 grid gap-4 md:grid-cols-4"><article class="stat-card"><div class="text-xs font-bold text-slate-500">Avance total</div><div class="stat-value">{{ current.progress }}%</div><div class="progress-track mt-3"><div class="h-full rounded-full bg-blue-500" [style.width.%]="current.progress"></div></div></article><article class="stat-card"><div class="text-xs font-bold text-slate-500">Horas registradas</div><div class="stat-value">{{ totalHours() }} h</div><div class="stat-label">Alimentan mano de obra directa</div></article><article class="stat-card"><div class="text-xs font-bold text-slate-500">Entrega prevista</div><div class="stat-value text-xl">{{ current.dueDate | date:'dd MMM' }}</div><div class="stat-label">{{ daysToDue() }} días desde fecha demo</div></article><article class="stat-card"><div class="text-xs font-bold text-slate-500">Etapas activas</div><div class="stat-value">{{ activeStages() }}</div><div class="stat-label">{{ current.assignedWorkers.length }} trabajadores asignados</div></article></section>
-      <section class="panel mt-6 overflow-hidden"><div class="panel-header"><div><h2 class="panel-title">Cronograma visual</h2><p class="mt-1 text-xs text-slate-500">Representación demostrativa del plan y avance</p></div><span class="badge-info">Semana 44–46</span></div><div class="overflow-x-auto p-5"><div class="min-w-[820px]"><div class="grid grid-cols-[220px_repeat(12,1fr)] border-b pb-3 text-center text-[10px] font-extrabold uppercase tracking-wide text-slate-400"><div class="text-left">Etapa / responsable</div>@for (day of days; track day) { <div>{{ day }}</div> }</div>@for (stage of current.stages; track stage.id; let index = $index) { <div class="grid grid-cols-[220px_repeat(12,1fr)] items-center border-b border-slate-100 py-4"><div><div class="text-sm font-extrabold text-slate-800">{{ stage.name }}</div><div class="mt-1 text-xs text-slate-500">{{ stage.owner }}</div></div><div class="col-span-12 grid h-9 grid-cols-12 items-center rounded-lg bg-slate-50 px-1"><div class="relative h-5 rounded-md bg-blue-100" [style.grid-column]="ganttColumn(index)"><div class="h-full rounded-md bg-blue-500" [style.width.%]="stage.progress"></div><span class="absolute inset-0 grid place-items-center text-[10px] font-black" [class.text-white]="stage.progress > 55" [class.text-blue-800]="stage.progress <= 55">{{ stage.progress }}%</span></div></div></div> }</div></div></section>
-      <section class="mt-6 grid gap-6 xl:grid-cols-[1.25fr_.75fr]"><article class="panel"><div class="panel-header"><div><h2 class="panel-title">Control por etapa</h2><p class="mt-1 text-xs text-slate-500">Cambios persistentes en el estado local</p></div></div><div class="divide-y divide-slate-100">@for (stage of current.stages; track stage.id) { <div class="grid gap-4 p-5 md:grid-cols-[1fr_220px_auto] md:items-center"><div><div class="font-extrabold text-slate-900">{{ stage.name }}</div><div class="mt-1 text-xs text-slate-500">{{ stage.owner }} · {{ stage.actualHours }} h reales / {{ stage.plannedHours }} h plan</div></div><div><div class="mb-2 flex justify-between text-xs font-bold text-slate-500"><span>Avance</span><span>{{ stage.progress }}%</span></div><div class="progress-track"><div class="h-full rounded-full bg-blue-500" [style.width.%]="stage.progress"></div></div></div><button class="btn-secondary" (click)="selectedStage = stage.id; hours = 2"><span appLucide="Clock3" [iconSize]="16"></span>Registrar horas</button></div> }</div></article><article class="panel p-5"><h2 class="panel-title">Actualizar avance físico</h2><p class="mt-1 text-xs leading-5 text-slate-500">Este porcentaje no cambia automáticamente por consumir materiales.</p><div class="mt-6 text-center"><div class="text-5xl font-black text-blue-600">{{ newProgress }}%</div><input class="mt-6 w-full accent-blue-600" type="range" min="0" max="100" step="1" [(ngModel)]="newProgress" /><div class="mt-2 flex justify-between text-[10px] font-bold text-slate-400"><span>0%</span><span>100%</span></div></div><button class="btn-primary mt-6 w-full" (click)="saveProgress()"><span appLucide="Save"></span>Guardar avance</button><div class="mt-6 rounded-xl bg-slate-50 p-4 text-xs leading-5 text-slate-600"><strong>Próximo hito:</strong> completar preparación para liberar pintura y revisar disponibilidad de barniz.</div></article></section>
-      @if (selectedStage) { <div class="fixed inset-0 z-[70] grid place-items-center bg-slate-950/50 p-4" (click)="selectedStage = ''"><form class="panel w-full max-w-md p-6" (click)="$event.stopPropagation()" (ngSubmit)="saveHours()"><div class="flex items-center justify-between"><h2 class="text-lg font-black">Registrar horas</h2><button type="button" class="icon-button" (click)="selectedStage = ''"><span appLucide="X"></span></button></div><p class="mt-2 text-sm text-slate-500">Las horas actualizarán el costo laboral proyectado de {{ current.number }}.</p><label class="mt-5 block"><span class="field-label">Horas trabajadas</span><input class="field" type="number" min="0.5" step="0.5" [(ngModel)]="hours" name="hours" /></label><button class="btn-primary mt-5 w-full">Guardar registro</button></form></div> }
-      @if (toast()) { <div class="fixed bottom-24 right-5 z-[80] rounded-2xl bg-slate-950 px-5 py-4 text-sm font-bold text-white shadow-2xl lg:bottom-6">{{ toast() }}</div> }
+      <section class="mt-6 grid gap-4 md:grid-cols-4">
+        <article class="stat-card">
+          <div class="stat-label">Avance derivado</div>
+          <div class="stat-value">{{ current.progress }}%</div>
+          <div class="progress-track mt-3">
+            <div class="progress-fill" [style.width.%]="current.progress"></div>
+          </div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Horas registradas</div>
+          <div class="stat-value">{{ totalHours() }} h</div>
+          <div class="stat-label">Partes diarios valorizados</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Entrega prevista</div>
+          <div class="stat-value text-xl">{{ current.dueDate | date: 'dd MMM' }}</div>
+          <div class="stat-label">{{ daysToDue() }} días desde fecha demo</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">Etapas activas</div>
+          <div class="stat-value">{{ activeStages() }}</div>
+          <div class="stat-label">{{ current.assignedWorkers.length }} responsables</div>
+        </article>
+      </section>
+      <section class="panel mt-6 overflow-hidden">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Cronograma Gantt</h2>
+            <p class="mt-1 text-xs text-slate-500">
+              Posición y duración calculadas desde las fechas planificadas.
+            </p>
+          </div>
+          <span class="badge-info"
+            >{{ timelineStart() | date: 'dd MMM' }} — {{ timelineEnd() | date: 'dd MMM' }}</span
+          >
+        </div>
+        <div class="overflow-x-auto p-5">
+          <div class="min-w-[820px]">
+            <div
+              class="grid grid-cols-[220px_repeat(14,1fr)] border-b pb-3 text-center text-[10px] font-extrabold uppercase tracking-wide text-slate-400"
+            >
+              <div class="text-left">Etapa / responsable</div>
+              @for (day of timelineDays(); track day) {
+                <div>{{ day | date: 'dd' }}</div>
+              }
+            </div>
+            @for (stage of current.stages; track stage.id) {
+              <div
+                class="grid grid-cols-[220px_repeat(14,1fr)] items-center border-b border-slate-100 py-4"
+              >
+                <div>
+                  <div class="text-sm font-extrabold">{{ stage.name }}</div>
+                  <div class="mt-1 text-xs text-slate-500">
+                    {{ stage.owner }} · {{ stage.plannedStart | date: 'dd/MM' }}–{{
+                      stage.plannedEnd | date: 'dd/MM'
+                    }}
+                  </div>
+                </div>
+                <div
+                  class="col-span-14 grid h-9 grid-cols-14 items-center rounded-lg bg-slate-50 px-1"
+                >
+                  <div
+                    class="gantt-bar"
+                    [style.grid-column]="ganttColumn(stage.plannedStart, stage.plannedEnd)"
+                  >
+                    <div class="progress-fill h-full" [style.width.%]="stage.progress"></div>
+                    <span>{{ stage.progress }}%</span>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      </section>
+      <section class="mt-6 grid gap-6 xl:grid-cols-[1.3fr_.7fr]">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Control por etapa</h2>
+              <p class="mt-1 text-xs text-slate-500">
+                El avance total se recalcula desde las etapas.
+              </p>
+            </div>
+          </div>
+          <div class="divide-y divide-slate-100">
+            @for (stage of current.stages; track stage.id) {
+              <div class="grid gap-4 p-5 md:grid-cols-[1fr_220px_auto] md:items-center">
+                <div>
+                  <div class="font-extrabold">{{ stage.name }}</div>
+                  <div class="mt-1 text-xs text-slate-500">
+                    {{ stage.owner }} · {{ store.stageHours(current.id, stage.id) }} h /
+                    {{ stage.plannedHours }} h plan
+                  </div>
+                </div>
+                <label
+                  ><span class="field-label">Avance {{ stage.progress }}%</span
+                  ><input
+                    class="w-full accent-[var(--fraespa-green)]"
+                    type="range"
+                    min="0"
+                    max="100"
+                    [ngModel]="stage.progress"
+                    (change)="saveStageProgress(stage.id, $any($event.target).value)" /></label
+                ><button class="btn-secondary" (click)="openHours(stage.id)">
+                  <span appLucide="Clock3" [iconSize]="16"></span>Registrar horas
+                </button>
+              </div>
+            }
+          </div>
+        </article>
+        <article class="panel p-5">
+          <h2 class="panel-title">Ajuste manual excepcional</h2>
+          <p class="mt-1 text-xs leading-5 text-slate-500">
+            Requiere una justificación auditable y no altera horas ni materiales.
+          </p>
+          <div class="mt-5 text-center text-5xl font-black text-[var(--fraespa-green-dark)]">
+            {{ newProgress }}%
+          </div>
+          <input
+            class="mt-5 w-full accent-[var(--fraespa-green)]"
+            type="range"
+            min="0"
+            max="100"
+            [(ngModel)]="newProgress"
+          /><label class="mt-4 block"
+            ><span class="field-label">Justificación obligatoria</span
+            ><textarea class="field" rows="3" [(ngModel)]="progressReason"></textarea></label
+          ><button class="btn-primary mt-4 w-full" (click)="saveProgress()">
+            <span appLucide="Save"></span>Guardar ajuste
+          </button>
+        </article>
+      </section>
+      @if (selectedStage) {
+        <div
+          class="fixed inset-0 z-[70] grid place-items-center bg-slate-950/55 p-4"
+          (click)="selectedStage = ''"
+        >
+          <form
+            class="panel w-full max-w-lg p-6"
+            (click)="$event.stopPropagation()"
+            (ngSubmit)="saveHours()"
+          >
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-black">Parte diario de horas</h2>
+              <button type="button" class="icon-button" (click)="selectedStage = ''">
+                <span appLucide="X"></span>
+              </button>
+            </div>
+            <div class="mt-5 grid gap-4 sm:grid-cols-2">
+              <label
+                ><span class="field-label">Trabajador</span
+                ><select class="field" [(ngModel)]="employeeId" name="employee">
+                  @for (employee of store.state().employees; track employee.id) {
+                    <option [value]="employee.id">{{ employee.name }} · {{ employee.role }}</option>
+                  }
+                </select></label
+              ><label
+                ><span class="field-label">Fecha</span
+                ><input class="field" type="date" [(ngModel)]="entryDate" name="date" /></label
+              ><label
+                ><span class="field-label">Tipo</span
+                ><select class="field" [(ngModel)]="hourType" name="type">
+                  <option>Normal</option>
+                  <option>Extra</option>
+                  <option>Reproceso</option>
+                </select></label
+              ><label
+                ><span class="field-label">Horas</span
+                ><input
+                  class="field"
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  [(ngModel)]="hours"
+                  name="hours"
+              /></label>
+            </div>
+            <button class="btn-primary mt-5 w-full">Guardar registro</button>
+          </form>
+        </div>
+      }
+      @if (toast()) {
+        <div
+          class="fixed bottom-24 right-5 z-[80] rounded-2xl bg-slate-950 px-5 py-4 text-sm font-bold text-white shadow-2xl lg:bottom-6"
+        >
+          {{ toast() }}
+        </div>
+      }
     }
   `,
 })
 export class ProductionPage {
   readonly store = inject(DemoStore);
-  readonly selectedId = signal('ot-125'); readonly toast = signal(''); readonly days = ['L 2', 'M 3', 'X 4', 'J 5', 'V 6', 'L 9', 'M 10', 'X 11', 'J 12', 'V 13', 'L 16', 'M 17'];
-  readonly activeOrders = computed(() => this.store.state().workOrders.filter((order) => order.financialDataSimulated && !['Terminada', 'Entregada'].includes(order.status)));
-  readonly order = computed(() => this.store.state().workOrders.find((order) => order.id === this.selectedId()));
-  readonly totalHours = computed(() => this.order()?.stages.reduce((sum, stage) => sum + stage.actualHours, 0) ?? 0);
-  readonly activeStages = computed(() => this.order()?.stages.filter((stage) => stage.status === 'En curso').length ?? 0);
-  newProgress = 58; selectedStage = ''; hours = 2;
-  selectOrder(id: string) { this.selectedId.set(id); this.newProgress = this.order()?.progress ?? 0; }
-  daysToDue() { const due = this.order()?.dueDate; return due ? Math.ceil((new Date(due).getTime() - new Date('2026-11-03').getTime()) / 86400000) : 0; }
-  ganttColumn(index: number) { const start = Math.min(10, index * 2 + 1); const span = Math.max(2, 5 - Math.floor(index / 2)); return `${start} / span ${Math.min(span, 13 - start)}`; }
-  saveProgress() { try { this.store.updateProgress(this.selectedId(), Number(this.newProgress)); this.show('Avance físico actualizado en el tablero.'); } catch (error) { this.show(error instanceof Error ? error.message : 'No se pudo actualizar.'); } }
-  saveHours() { try { this.store.recordHours(this.selectedId(), this.selectedStage, Number(this.hours)); this.selectedStage = ''; this.show('Horas guardadas y costo laboral recalculado.'); } catch (error) { this.show(error instanceof Error ? error.message : 'No se pudo guardar.'); } }
-  private show(message: string) { this.toast.set(message); setTimeout(() => this.toast.set(''), 3200); }
+  readonly selectedId = signal('ot-125');
+  readonly toast = signal('');
+  readonly activeOrders = computed(() =>
+    this.store
+      .state()
+      .workOrders.filter(
+        (order) =>
+          order.financialDataSimulated && !['Terminada', 'Entregada'].includes(order.status),
+      ),
+  );
+  readonly order = computed(() => this.store.order(this.selectedId()));
+  readonly totalHours = computed(
+    () =>
+      this.order()?.stages.reduce(
+        (sum, stage) => sum + this.store.stageHours(this.selectedId(), stage.id),
+        0,
+      ) ?? 0,
+  );
+  readonly activeStages = computed(
+    () => this.order()?.stages.filter((stage) => stage.status === 'En curso').length ?? 0,
+  );
+  readonly timelineStart = computed(
+    () =>
+      this.order()
+        ?.stages.map((stage) => stage.plannedStart)
+        .sort()[0] ?? '2026-11-02',
+  );
+  readonly timelineEnd = computed(
+    () =>
+      this.order()
+        ?.stages.map((stage) => stage.plannedEnd)
+        .sort()
+        .at(-1) ?? '2026-11-15',
+  );
+  readonly timelineDays = computed(() =>
+    Array.from({ length: 14 }, (_, index) =>
+      new Date(new Date(this.timelineStart() + 'T00:00:00').getTime() + index * 86400000)
+        .toISOString()
+        .slice(0, 10),
+    ),
+  );
+  newProgress = 58;
+  progressReason = '';
+  selectedStage = '';
+  employeeId = 'emp-jhony';
+  entryDate = '2026-11-04';
+  hours = 2;
+  hourType: 'Normal' | 'Extra' | 'Reproceso' = 'Normal';
+  selectOrder(id: string) {
+    this.selectedId.set(id);
+    this.newProgress = this.order()?.progress ?? 0;
+  }
+  daysToDue() {
+    const due = this.order()?.dueDate;
+    return due
+      ? Math.ceil((new Date(due).getTime() - new Date('2026-11-04').getTime()) / 86400000)
+      : 0;
+  }
+  ganttColumn(start: string, end: string) {
+    const base = new Date(this.timelineStart() + 'T00:00:00').getTime();
+    const first = Math.max(1, Math.floor((new Date(start).getTime() - base) / 86400000) + 1);
+    const span = Math.max(
+      1,
+      Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1,
+    );
+    return `${Math.min(14, first)} / span ${Math.min(span, 15 - Math.min(14, first))}`;
+  }
+  openHours(stageId: string) {
+    this.selectedStage = stageId;
+    this.hours = 2;
+  }
+  saveStageProgress(stageId: string, value: number) {
+    try {
+      this.store.updateStageProgress(this.selectedId(), stageId, Number(value));
+    } catch (error) {
+      this.show(this.message(error));
+    }
+  }
+  saveProgress() {
+    try {
+      this.store.updateProgress(this.selectedId(), Number(this.newProgress), this.progressReason);
+      this.progressReason = '';
+      this.show('Ajuste manual guardado con trazabilidad.');
+    } catch (error) {
+      this.show(this.message(error));
+    }
+  }
+  saveHours() {
+    try {
+      this.store.recordHours(
+        this.selectedId(),
+        this.selectedStage,
+        this.employeeId,
+        this.entryDate,
+        Number(this.hours),
+        this.hourType,
+      );
+      this.selectedStage = '';
+      this.show('Parte diario guardado y costo laboral recalculado.');
+    } catch (error) {
+      this.show(this.message(error));
+    }
+  }
+  private message(error: unknown) {
+    return error instanceof Error ? error.message : 'No se pudo completar la operación.';
+  }
+  private show(message: string) {
+    this.toast.set(message);
+    setTimeout(() => this.toast.set(''), 3200);
+  }
 }
