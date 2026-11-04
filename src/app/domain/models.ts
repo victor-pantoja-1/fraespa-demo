@@ -1,6 +1,22 @@
-export type Role = 'Administrador' | 'Gerente' | 'Jefe de taller' | 'Bodeguero' | 'Trabajador' | 'Compras';
-export type WorkOrderStatus = 'Programada' | 'Recibida' | 'En evaluación' | 'Pendiente de inicio' | 'En proceso' | 'Detenida' | 'En control de calidad' | 'Terminada' | 'Entregada';
-export type EconomicStatus = 'Sin cotización' | 'Cotizada' | 'Aprobada' | 'Con adicionales pendientes' | 'Pendiente de conciliación' | 'Cerrada económicamente';
+export type Role =
+  'Administrador' | 'Gerente' | 'Jefe de taller' | 'Bodeguero' | 'Trabajador' | 'Compras';
+export type WorkOrderStatus =
+  | 'Programada'
+  | 'Recibida'
+  | 'En evaluación'
+  | 'Pendiente de inicio'
+  | 'En proceso'
+  | 'Detenida'
+  | 'En control de calidad'
+  | 'Terminada'
+  | 'Entregada';
+export type EconomicStatus =
+  | 'Sin cotización'
+  | 'Cotizada'
+  | 'Aprobada'
+  | 'Con adicionales pendientes'
+  | 'Pendiente de conciliación'
+  | 'Cerrada económicamente';
 
 export interface Product {
   id: string;
@@ -12,6 +28,7 @@ export interface Product {
   openingStock: number;
   minimumStock: number;
   unitCost: number;
+  costBasis: string;
   location: string;
   source: 'Excel verificado' | 'Demostración';
 }
@@ -19,6 +36,8 @@ export interface Product {
 export interface MaterialPlanLine {
   productId: string;
   estimatedQty: number;
+  originalEstimatedQty: number;
+  note?: string;
 }
 
 export interface WorkStage {
@@ -28,6 +47,9 @@ export interface WorkStage {
   progress: number;
   plannedHours: number;
   actualHours: number;
+  plannedStart: string;
+  plannedEnd: string;
+  blockedReason?: string;
   status: 'Pendiente' | 'En curso' | 'Completada' | 'Bloqueada';
 }
 
@@ -36,6 +58,8 @@ export interface WorkOrder {
   number: string;
   referenceType: 'OT' | 'OF' | 'Demo';
   sourceLabel: string;
+  intakeId?: string;
+  agreementId?: string;
   client: string;
   vehicle: string;
   model: string;
@@ -64,11 +88,20 @@ export interface WorkOrder {
   laborRate: number;
   stages: WorkStage[];
   materialPlan: MaterialPlanLine[];
+  materialPlanRevision?: number;
   assignedWorkers: string[];
   financialDataSimulated: boolean;
+  manualProgressReason?: string;
 }
 
-export type MovementType = 'Despacho' | 'Devolución' | 'Transferencia salida' | 'Transferencia entrada' | 'Merma' | 'Ingreso' | 'Ajuste';
+export type MovementType =
+  | 'Despacho'
+  | 'Devolución'
+  | 'Transferencia salida'
+  | 'Transferencia entrada'
+  | 'Merma'
+  | 'Ingreso'
+  | 'Ajuste';
 
 export interface InventoryMovement {
   id: string;
@@ -84,12 +117,17 @@ export interface InventoryMovement {
   reference: string;
   user: string;
   note?: string;
+  sourceMovementId?: string;
+  sourceVoucherId?: string;
 }
 
 export interface VoucherLine {
+  requestLineId: string;
   productId: string;
+  requestedQuantity: number;
   quantity: number;
   unitCost: number;
+  sourceMovementId?: string;
 }
 
 export interface MaterialVoucher {
@@ -102,8 +140,18 @@ export interface MaterialVoucher {
   warehouseKeeper: string;
   stage: string;
   status: 'Emitido' | 'Anulado';
+  requestId: string;
   lines: VoucherLine[];
   note: string;
+}
+
+export interface MaterialRequestLine {
+  id: string;
+  productId: string;
+  requestedQuantity: number;
+  deliveredQuantity: number;
+  closedQuantity: number;
+  note?: string;
 }
 
 export interface MaterialRequest {
@@ -112,10 +160,30 @@ export interface MaterialRequest {
   workOrderId: string;
   requester: string;
   stage: string;
-  productId: string;
-  quantity: number;
-  status: 'Pendiente' | 'Entregada' | 'Rechazada';
+  receiver: string;
+  lines: MaterialRequestLine[];
+  status: 'Pendiente' | 'Parcial' | 'Entregada' | 'Cerrada' | 'Rechazada';
   note: string;
+  excessJustification?: string;
+}
+
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  hourlyCost: number;
+}
+
+export interface TimeEntry {
+  id: string;
+  workOrderId: string;
+  stageId: string;
+  employeeId: string;
+  date: string;
+  hours: number;
+  hourType: 'Normal' | 'Extra' | 'Reproceso';
+  hourlyCost: number;
+  createdAt: string;
 }
 
 export interface AuditEvent {
@@ -137,6 +205,7 @@ export interface CommercialAgreement {
   units: number;
   estimatedCost: number;
   date: string;
+  priceScope: 'Por unidad' | 'Global';
 }
 
 export interface VehicleIntake {
@@ -149,19 +218,32 @@ export interface VehicleIntake {
   agreementId: string;
   date: string;
   status: 'Recibida' | 'OT creada';
+  workOrderId?: string;
+}
+
+export interface SyncOperation {
+  id: string;
+  createdAt: string;
+  type: string;
+  status: 'Pendiente' | 'Procesada';
+  summary: string;
 }
 
 export interface DemoState {
+  schemaVersion: number;
   products: Product[];
   workOrders: WorkOrder[];
   movements: InventoryMovement[];
   vouchers: MaterialVoucher[];
   requests: MaterialRequest[];
+  employees: Employee[];
+  timeEntries: TimeEntry[];
   agreements: CommercialAgreement[];
   intakes: VehicleIntake[];
   audit: AuditEvent[];
   offline: boolean;
   pendingSync: number;
+  pendingOperations: SyncOperation[];
   lastSync: string;
   role: Role;
 }
@@ -169,14 +251,17 @@ export interface DemoState {
 export interface Profitability {
   income: number | null;
   materials: number;
+  materialsDelivered: number;
+  materialsRecovered: number;
   labor: number;
   directCost: number;
   productionCost: number;
   managementResult: number | null;
+  finalManagementResult: number | null;
+  finalMarginPct: number | null;
   contributionMargin: number | null;
   projectedFinalCost: number;
   projectedMargin: number | null;
   projectedMarginPct: number | null;
   risk: 'Saludable' | 'Atención' | 'Crítico' | 'Sin datos';
 }
-

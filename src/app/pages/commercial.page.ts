@@ -7,30 +7,422 @@ import { DemoStore } from '../services/demo-store.service';
 import { LucideIconDirective } from '../shared/lucide-icon.directive';
 
 @Component({
-  selector: 'app-commercial-page', standalone: true, imports: [CommonModule, FormsModule, RouterLink, LucideIconDirective],
+  selector: 'app-commercial-page',
+  standalone: true,
+  imports: [CommonModule, FormsModule, RouterLink, LucideIconDirective],
   template: `
-    <section class="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><div class="eyebrow">Antes de que llegue el bus</div><h1 class="section-heading mt-1">Clientes, acuerdos e ingresos</h1><p class="section-copy">Cotización, acuerdo comercial e ingreso físico son registros distintos.</p></div><div class="flex gap-2"><button class="btn-secondary" (click)="intakeOpen.set(true)"><span appLucide="BusFront"></span>Registrar ingreso</button><button class="btn-primary" (click)="quoteOpen.set(true)"><span appLucide="FilePlus2"></span>Nueva cotización</button></div></section>
-    <section class="mt-6 grid gap-4 md:grid-cols-3"><article class="stat-card"><div class="stat-icon bg-blue-50 text-blue-600"><span appLucide="Building2"></span></div><div class="stat-value">7</div><div class="stat-label">Clientes de demostración</div></article><article class="stat-card"><div class="stat-icon bg-emerald-50 text-emerald-600"><span appLucide="CircleCheckBig"></span></div><div class="stat-value">{{ approvedCount() }}</div><div class="stat-label">Cotizaciones aprobadas</div></article><article class="stat-card"><div class="stat-icon bg-violet-50 text-violet-600"><span appLucide="Bus"></span></div><div class="stat-value">{{ store.state().intakes.length }}</div><div class="stat-label">Ingresos vinculados a acuerdos</div></article></section>
-    <section class="mt-6 grid gap-6 xl:grid-cols-[1.25fr_.75fr]"><article class="panel"><div class="panel-header"><div><h2 class="panel-title">Cotizaciones y acuerdos comerciales</h2><p class="mt-1 text-xs text-slate-500">Una cotización puede cubrir varias unidades</p></div></div><div class="table-shell"><table class="data-table"><thead><tr><th>Cotización</th><th>Cliente / servicio</th><th>Unidades</th><th>Neto</th><th>Costo estimado</th><th>Margen esperado</th><th>Estado</th><th></th></tr></thead><tbody>@for (agreement of store.state().agreements; track agreement.id) { <tr><td><div class="font-black text-slate-950">{{ agreement.quoteNumber }}</div><div class="mt-1 text-xs text-slate-500">{{ agreement.date | date:'dd/MM/yyyy' }}</div></td><td><div class="font-bold">{{ agreement.client }}</div><div class="mt-1 text-xs text-slate-500">{{ agreement.service }}</div></td><td>{{ agreement.units }}</td><td class="font-extrabold">{{ clp(agreement.netPrice) }}</td><td>{{ clp(agreement.estimatedCost) }}</td><td class="font-extrabold text-emerald-600">{{ pct((agreement.netPrice - agreement.estimatedCost) / agreement.netPrice) }}</td><td><span class="badge" [class.badge-success]="agreement.status === 'Aprobada'" [class.badge-neutral]="agreement.status === 'Borrador'">{{ agreement.status }}</span></td><td>@if (agreement.status === 'Borrador') { <button class="btn-secondary" (click)="approve(agreement.id)">Aprobar</button> } @else { <button class="icon-button" (click)="intakeAgreement = agreement.id; intakeClient = agreement.client; intakeOpen.set(true)"><span appLucide="CalendarPlus" [iconSize]="17"></span></button> }</td></tr> }</tbody></table></div></article>
-      <article class="panel p-5"><div class="flex items-center justify-between"><div><h2 class="panel-title">Caso Transportes ABC</h2><p class="mt-1 text-xs text-slate-500">Trazabilidad del recorrido comercial</p></div><span class="badge-success">Activo</span></div><div class="relative mt-6 space-y-5 before:absolute before:bottom-3 before:left-[15px] before:top-3 before:w-px before:bg-slate-200">@for (step of abcTimeline; track step.title) { <div class="relative flex gap-4"><div class="z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-600 text-white"><span [appLucide]="step.icon" [iconSize]="15"></span></div><div><div class="text-sm font-extrabold">{{ step.title }}</div><div class="mt-1 text-xs leading-5 text-slate-500">{{ step.detail }}</div></div></div> }</div><a routerLink="/ordenes/ot-125" class="btn-primary mt-6 w-full">Abrir ficha integral OT-125<span appLucide="ArrowRight" [iconSize]="16"></span></a></article></section>
-    <section class="panel mt-6"><div class="panel-header"><div><h2 class="panel-title">Ingresos de vehículos</h2><p class="mt-1 text-xs text-slate-500">El acuerdo existe antes del ingreso físico</p></div></div><div class="table-shell"><table class="data-table"><thead><tr><th>Ingreso</th><th>Fecha</th><th>Cliente</th><th>Unidad</th><th>Marca / modelo</th><th>Acuerdo</th><th>Estado</th></tr></thead><tbody>@for (intake of store.state().intakes; track intake.id) { <tr><td class="font-black">{{ intake.code }}</td><td>{{ intake.date | date:'dd/MM/yyyy HH:mm' }}</td><td>{{ intake.client }}</td><td class="font-extrabold">{{ intake.vehicle }}</td><td>{{ intake.brand }} · {{ intake.model }}</td><td>{{ agreementNumber(intake.agreementId) }}</td><td><span class="badge-success">{{ intake.status }}</span></td></tr> }</tbody></table></div></section>
-    @if (quoteOpen()) { <div class="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-slate-950/55 p-4" (click)="quoteOpen.set(false)"><form class="panel w-full max-w-2xl p-6" (click)="$event.stopPropagation()" (ngSubmit)="createQuote()"><div class="flex items-center justify-between"><div><h2 class="text-xl font-black">Nueva cotización</h2><p class="mt-1 text-xs text-slate-500">Registro comercial previo al ingreso.</p></div><button type="button" class="icon-button" (click)="quoteOpen.set(false)"><span appLucide="X"></span></button></div><div class="mt-6 grid gap-4 sm:grid-cols-2"><label><span class="field-label">Cliente</span><input class="field" [(ngModel)]="quoteClient" name="client" required /></label><label><span class="field-label">Servicio</span><input class="field" [(ngModel)]="quoteService" name="service" required /></label><label><span class="field-label">Precio neto</span><input class="field" type="number" [(ngModel)]="quotePrice" name="price" /></label><label><span class="field-label">Costo estimado</span><input class="field" type="number" [(ngModel)]="quoteCost" name="cost" /></label><label><span class="field-label">Unidades previstas</span><input class="field" type="number" min="1" [(ngModel)]="quoteUnits" name="units" /></label><label><span class="field-label">Impuesto configurable</span><select class="field" [(ngModel)]="quoteTax" name="tax"><option [ngValue]="0.19">IVA 19%</option><option [ngValue]="0">Sin impuesto</option></select></label></div><div class="mt-5 rounded-xl bg-slate-50 p-4 text-sm"><div class="flex justify-between"><span>Total con impuesto</span><strong>{{ clp(quotePrice * (1 + quoteTax)) }}</strong></div><div class="mt-2 flex justify-between"><span>Margen esperado</span><strong class="text-emerald-600">{{ pct((quotePrice - quoteCost) / (quotePrice || 1)) }}</strong></div></div><button class="btn-primary mt-5 w-full">Guardar cotización</button></form></div> }
-    @if (intakeOpen()) { <div class="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-slate-950/55 p-4" (click)="intakeOpen.set(false)"><form class="panel w-full max-w-2xl p-6" (click)="$event.stopPropagation()" (ngSubmit)="registerIntake()"><div class="flex items-center justify-between"><div><h2 class="text-xl font-black">Recepción de unidad</h2><p class="mt-1 text-xs text-slate-500">Genera un código de ingreso y conserva el acuerdo.</p></div><button type="button" class="icon-button" (click)="intakeOpen.set(false)"><span appLucide="X"></span></button></div><div class="mt-6 grid gap-4 sm:grid-cols-2"><label><span class="field-label">Acuerdo aprobado</span><select class="field" [(ngModel)]="intakeAgreement" name="agreement" (ngModelChange)="useAgreement($event)">@for (agreement of approvedAgreements(); track agreement.id) { <option [value]="agreement.id">{{ agreement.quoteNumber }} · {{ agreement.client }}</option> }</select></label><label><span class="field-label">Cliente</span><input class="field" [(ngModel)]="intakeClient" name="intakeClient" /></label><label><span class="field-label">Patente / código</span><input class="field" [(ngModel)]="intakeVehicle" name="vehicle" required /></label><label><span class="field-label">Marca</span><input class="field" [(ngModel)]="intakeBrand" name="brand" /></label><label><span class="field-label">Modelo</span><input class="field" [(ngModel)]="intakeModel" name="model" /></label><label><span class="field-label">Responsable</span><input class="field" value="Supervisor de producción" disabled /></label></div><button class="btn-primary mt-5 w-full">Confirmar recepción</button></form></div> }
-    @if (toast()) { <div class="fixed bottom-24 right-5 z-[80] rounded-2xl bg-slate-950 px-5 py-4 text-sm font-bold text-white shadow-2xl lg:bottom-6">{{ toast() }}</div> }
+    <section class="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+      <div>
+        <div class="eyebrow">Antes de que llegue el bus</div>
+        <h1 class="section-heading mt-1">Clientes, acuerdos e ingresos</h1>
+        <p class="section-copy">
+          Cotización, acuerdo comercial e ingreso físico son registros distintos.
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn-secondary" (click)="intakeOpen.set(true)">
+          <span appLucide="BusFront"></span>Registrar ingreso</button
+        ><button class="btn-primary" (click)="quoteOpen.set(true)">
+          <span appLucide="FilePlus2"></span>Nueva cotización
+        </button>
+      </div>
+    </section>
+    <section class="mt-6 grid gap-4 md:grid-cols-3">
+      <article class="stat-card">
+        <div class="stat-icon bg-[var(--accent-soft)] text-[var(--fraespa-green-dark)]">
+          <span appLucide="Building2"></span>
+        </div>
+        <div class="stat-value">7</div>
+        <div class="stat-label">Clientes de demostración</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-icon bg-emerald-50 text-emerald-600">
+          <span appLucide="CircleCheckBig"></span>
+        </div>
+        <div class="stat-value">{{ approvedCount() }}</div>
+        <div class="stat-label">Cotizaciones aprobadas</div>
+      </article>
+      <article class="stat-card">
+        <div class="stat-icon bg-violet-50 text-violet-600"><span appLucide="Bus"></span></div>
+        <div class="stat-value">{{ store.state().intakes.length }}</div>
+        <div class="stat-label">Ingresos vinculados a acuerdos</div>
+      </article>
+    </section>
+    <section class="mt-6 grid gap-6 xl:grid-cols-[1.25fr_.75fr]">
+      <article class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Cotizaciones y acuerdos comerciales</h2>
+            <p class="mt-1 text-xs text-slate-500">Una cotización puede cubrir varias unidades</p>
+          </div>
+        </div>
+        <div class="table-shell">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Cotización</th>
+                <th>Cliente / servicio</th>
+                <th>Unidades / recibidas / pendientes</th>
+                <th>Neto</th>
+                <th>Costo estimado</th>
+                <th>Margen esperado</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (agreement of store.state().agreements; track agreement.id) {
+                <tr>
+                  <td>
+                    <div class="font-black text-slate-950">{{ agreement.quoteNumber }}</div>
+                    <div class="mt-1 text-xs text-slate-500">
+                      {{ agreement.date | date: 'dd/MM/yyyy' }}
+                    </div>
+                  </td>
+                  <td>
+                    <div class="font-bold">{{ agreement.client }}</div>
+                    <div class="mt-1 text-xs text-slate-500">{{ agreement.service }}</div>
+                  </td>
+                  <td>
+                    {{ agreement.units }} / {{ receivedUnits(agreement.id) }} /
+                    {{ agreement.units - receivedUnits(agreement.id) }}
+                  </td>
+                  <td class="font-extrabold">{{ clp(agreement.netPrice) }}</td>
+                  <td>{{ clp(agreement.estimatedCost) }}</td>
+                  <td class="font-extrabold text-emerald-600">
+                    {{ pct((agreement.netPrice - agreement.estimatedCost) / agreement.netPrice) }}
+                  </td>
+                  <td>
+                    <span
+                      class="badge"
+                      [class.badge-success]="agreement.status === 'Aprobada'"
+                      [class.badge-neutral]="agreement.status === 'Borrador'"
+                      >{{ agreement.status }}</span
+                    >
+                  </td>
+                  <td>
+                    @if (agreement.status === 'Borrador') {
+                      <button class="btn-secondary" (click)="approve(agreement.id)">Aprobar</button>
+                    } @else {
+                      <button
+                        class="icon-button"
+                        (click)="
+                          intakeAgreement = agreement.id;
+                          intakeClient = agreement.client;
+                          intakeOpen.set(true)
+                        "
+                      >
+                        <span appLucide="CalendarPlus" [iconSize]="17"></span>
+                      </button>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="panel p-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="panel-title">Caso Transportes ABC</h2>
+            <p class="mt-1 text-xs text-slate-500">Trazabilidad del recorrido comercial</p>
+          </div>
+          <span class="badge-success">Activo</span>
+        </div>
+        <div
+          class="relative mt-6 space-y-5 before:absolute before:bottom-3 before:left-[15px] before:top-3 before:w-px before:bg-slate-200"
+        >
+          @for (step of abcTimeline; track step.title) {
+            <div class="relative flex gap-4">
+              <div
+                class="z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--fraespa-green)] text-white"
+              >
+                <span [appLucide]="step.icon" [iconSize]="15"></span>
+              </div>
+              <div>
+                <div class="text-sm font-extrabold">{{ step.title }}</div>
+                <div class="mt-1 text-xs leading-5 text-slate-500">{{ step.detail }}</div>
+              </div>
+            </div>
+          }
+        </div>
+        <a routerLink="/ordenes/ot-125" class="btn-primary mt-6 w-full"
+          >Abrir ficha integral OT-125<span appLucide="ArrowRight" [iconSize]="16"></span
+        ></a>
+      </article>
+    </section>
+    <section class="panel mt-6">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Ingresos de vehículos</h2>
+          <p class="mt-1 text-xs text-slate-500">El acuerdo existe antes del ingreso físico</p>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Ingreso</th>
+              <th>Fecha</th>
+              <th>Cliente</th>
+              <th>Unidad</th>
+              <th>Marca / modelo</th>
+              <th>Acuerdo</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (intake of store.state().intakes; track intake.id) {
+              <tr>
+                <td class="font-black">{{ intake.code }}</td>
+                <td>{{ intake.date | date: 'dd/MM/yyyy HH:mm' }}</td>
+                <td>{{ intake.client }}</td>
+                <td class="font-extrabold">{{ intake.vehicle }}</td>
+                <td>{{ intake.brand }} · {{ intake.model }}</td>
+                <td>{{ agreementNumber(intake.agreementId) }}</td>
+                <td>
+                  <span class="badge-success">{{ intake.status }}</span>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+    @if (quoteOpen()) {
+      <div
+        class="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-slate-950/55 p-4"
+        (click)="quoteOpen.set(false)"
+      >
+        <form
+          class="panel w-full max-w-2xl p-6"
+          (click)="$event.stopPropagation()"
+          (ngSubmit)="createQuote()"
+        >
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-xl font-black">Nueva cotización</h2>
+              <p class="mt-1 text-xs text-slate-500">Registro comercial previo al ingreso.</p>
+            </div>
+            <button type="button" class="icon-button" (click)="quoteOpen.set(false)">
+              <span appLucide="X"></span>
+            </button>
+          </div>
+          <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <label
+              ><span class="field-label">Cliente</span
+              ><input class="field" [(ngModel)]="quoteClient" name="client" required /></label
+            ><label
+              ><span class="field-label">Servicio</span
+              ><input class="field" [(ngModel)]="quoteService" name="service" required /></label
+            ><label
+              ><span class="field-label">Precio neto</span
+              ><input class="field" type="number" [(ngModel)]="quotePrice" name="price" /></label
+            ><label
+              ><span class="field-label">Alcance del precio</span
+              ><select class="field" [(ngModel)]="quotePriceScope" name="priceScope">
+                <option>Por unidad</option>
+                <option>Global</option>
+              </select></label
+            ><label
+              ><span class="field-label">Costo estimado</span
+              ><input class="field" type="number" [(ngModel)]="quoteCost" name="cost" /></label
+            ><label
+              ><span class="field-label">Unidades previstas</span
+              ><input
+                class="field"
+                type="number"
+                min="1"
+                [(ngModel)]="quoteUnits"
+                name="units" /></label
+            ><label
+              ><span class="field-label">Impuesto configurable</span
+              ><select class="field" [(ngModel)]="quoteTax" name="tax">
+                <option [ngValue]="0.19">IVA 19%</option>
+                <option [ngValue]="0">Sin impuesto</option>
+              </select></label
+            >
+          </div>
+          <div class="mt-5 rounded-xl bg-slate-50 p-4 text-sm">
+            <div class="flex justify-between">
+              <span>Total con impuesto</span><strong>{{ clp(quotePrice * (1 + quoteTax)) }}</strong>
+            </div>
+            <div class="mt-2 flex justify-between">
+              <span>Margen esperado</span
+              ><strong class="text-emerald-600">{{
+                pct((quotePrice - quoteCost) / (quotePrice || 1))
+              }}</strong>
+            </div>
+          </div>
+          <button class="btn-primary mt-5 w-full">Guardar cotización</button>
+        </form>
+      </div>
+    }
+    @if (intakeOpen()) {
+      <div
+        class="fixed inset-0 z-[70] grid place-items-center overflow-y-auto bg-slate-950/55 p-4"
+        (click)="intakeOpen.set(false)"
+      >
+        <form
+          class="panel w-full max-w-2xl p-6"
+          (click)="$event.stopPropagation()"
+          (ngSubmit)="registerIntake()"
+        >
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-xl font-black">Recepción de unidad</h2>
+              <p class="mt-1 text-xs text-slate-500">
+                Genera un código de ingreso y conserva el acuerdo.
+              </p>
+            </div>
+            <button type="button" class="icon-button" (click)="intakeOpen.set(false)">
+              <span appLucide="X"></span>
+            </button>
+          </div>
+          <div class="mt-6 grid gap-4 sm:grid-cols-2">
+            <label
+              ><span class="field-label">Acuerdo aprobado</span
+              ><select
+                class="field"
+                [(ngModel)]="intakeAgreement"
+                name="agreement"
+                (ngModelChange)="useAgreement($event)"
+              >
+                @for (agreement of approvedAgreements(); track agreement.id) {
+                  <option [value]="agreement.id">
+                    {{ agreement.quoteNumber }} · {{ agreement.client }}
+                  </option>
+                }
+              </select></label
+            ><label
+              ><span class="field-label">Cliente</span
+              ><input class="field" [(ngModel)]="intakeClient" name="intakeClient" /></label
+            ><label
+              ><span class="field-label">Patente / código</span
+              ><input class="field" [(ngModel)]="intakeVehicle" name="vehicle" required /></label
+            ><label
+              ><span class="field-label">Marca</span
+              ><input class="field" [(ngModel)]="intakeBrand" name="brand" /></label
+            ><label
+              ><span class="field-label">Modelo</span
+              ><input class="field" [(ngModel)]="intakeModel" name="model" /></label
+            ><label
+              ><span class="field-label">Responsable</span
+              ><input class="field" value="Supervisor de producción" disabled
+            /></label>
+          </div>
+          <button class="btn-primary mt-5 w-full">Confirmar recepción</button>
+        </form>
+      </div>
+    }
+    @if (toast()) {
+      <div
+        class="fixed bottom-24 right-5 z-[80] rounded-2xl bg-slate-950 px-5 py-4 text-sm font-bold text-white shadow-2xl lg:bottom-6"
+      >
+        {{ toast() }}
+      </div>
+    }
   `,
 })
 export class CommercialPage {
-  readonly store = inject(DemoStore); readonly quoteOpen = signal(false); readonly intakeOpen = signal(false); readonly toast = signal('');
-  readonly approvedAgreements = computed(() => this.store.state().agreements.filter((item) => item.status === 'Aprobada'));
-  readonly abcTimeline = [{ icon: 'FileCheck2', title: 'Cotización COT-2026-041 aprobada', detail: '$3.000.000 netos · costo estimado $2.200.000.' }, { icon: 'BusFront', title: 'Ingreso ING-2026-0088', detail: 'ABCD45 recibido el 21 de octubre y vinculado al acuerdo.' }, { icon: 'ClipboardList', title: 'OT-125 en proceso', detail: '58% de avance físico con cuatro responsables asignados.' }, { icon: 'BadgeDollarSign', title: 'Control económico activo', detail: 'Materiales, horas y servicios recalculan la proyección.' }];
-  quoteClient = 'Empresa ABC'; quoteService = 'Reparación y pintura de flota'; quotePrice = 3500000; quoteCost = 2450000; quoteUnits = 1; quoteTax = 0.19;
-  intakeAgreement = 'agr-abc'; intakeClient = 'Transportes ABC'; intakeVehicle = 'ABCD46'; intakeBrand = 'Marcopolo'; intakeModel = 'Paradiso G7'; clp = formatClp;
-  approvedCount() { return this.approvedAgreements().length; }
-  pct(value: number) { return new Intl.NumberFormat('es-CL', { style: 'percent', minimumFractionDigits: 1 }).format(value); }
-  agreementNumber(id: string) { return this.store.state().agreements.find((item) => item.id === id)?.quoteNumber ?? '—'; }
-  approve(id: string) { this.store.approveQuotation(id); this.show('Cotización aprobada y lista para programar ingresos.'); }
-  createQuote() { try { const number = this.store.createQuotation({ client: this.quoteClient, service: this.quoteService, netPrice: Number(this.quotePrice), estimatedCost: Number(this.quoteCost), units: Number(this.quoteUnits), taxRate: Number(this.quoteTax) }); this.quoteOpen.set(false); this.show(`${number} guardada como borrador.`); } catch (error) { this.show(error instanceof Error ? error.message : 'No se pudo crear.'); } }
-  useAgreement(id: string) { this.intakeClient = this.store.state().agreements.find((item) => item.id === id)?.client ?? ''; }
-  registerIntake() { try { const code = this.store.registerIntake({ agreementId: this.intakeAgreement, client: this.intakeClient, vehicle: this.intakeVehicle, brand: this.intakeBrand, model: this.intakeModel }); this.intakeOpen.set(false); this.show(`${code} creado y vinculado al acuerdo.`); } catch (error) { this.show(error instanceof Error ? error.message : 'No se pudo registrar.'); } }
-  private show(message: string) { this.toast.set(message); setTimeout(() => this.toast.set(''), 3400); }
+  readonly store = inject(DemoStore);
+  readonly quoteOpen = signal(false);
+  readonly intakeOpen = signal(false);
+  readonly toast = signal('');
+  readonly approvedAgreements = computed(() =>
+    this.store.state().agreements.filter((item) => item.status === 'Aprobada'),
+  );
+  readonly abcTimeline = [
+    {
+      icon: 'FileCheck2',
+      title: 'Cotización COT-2026-041 aprobada',
+      detail: '$3.000.000 netos · costo estimado $2.200.000.',
+    },
+    {
+      icon: 'BusFront',
+      title: 'Ingreso ING-2026-0088',
+      detail: 'ABCD45 recibido el 21 de octubre y vinculado al acuerdo.',
+    },
+    {
+      icon: 'ClipboardList',
+      title: 'OT-125 en proceso',
+      detail: '58% de avance físico con cuatro responsables asignados.',
+    },
+    {
+      icon: 'BadgeDollarSign',
+      title: 'Control económico activo',
+      detail: 'Materiales, horas y servicios recalculan la proyección.',
+    },
+  ];
+  quoteClient = 'Empresa ABC';
+  quoteService = 'Reparación y pintura de flota';
+  quotePrice = 3500000;
+  quoteCost = 2450000;
+  quoteUnits = 1;
+  quoteTax = 0.19;
+  quotePriceScope: 'Por unidad' | 'Global' = 'Por unidad';
+  intakeAgreement = 'agr-multi';
+  intakeClient = 'Buses Costa Norte';
+  intakeVehicle = 'ABCD46';
+  intakeBrand = 'Marcopolo';
+  intakeModel = 'Paradiso G7';
+  clp = formatClp;
+  approvedCount() {
+    return this.approvedAgreements().length;
+  }
+  pct(value: number) {
+    return new Intl.NumberFormat('es-CL', { style: 'percent', minimumFractionDigits: 1 }).format(
+      value,
+    );
+  }
+  agreementNumber(id: string) {
+    return this.store.state().agreements.find((item) => item.id === id)?.quoteNumber ?? '—';
+  }
+  receivedUnits(id: string) {
+    return this.store.state().intakes.filter((item) => item.agreementId === id).length;
+  }
+  approve(id: string) {
+    this.store.approveQuotation(id);
+    this.show('Cotización aprobada y lista para programar ingresos.');
+  }
+  createQuote() {
+    try {
+      const number = this.store.createQuotation({
+        client: this.quoteClient,
+        service: this.quoteService,
+        netPrice: Number(this.quotePrice),
+        estimatedCost: Number(this.quoteCost),
+        units: Number(this.quoteUnits),
+        taxRate: Number(this.quoteTax),
+        priceScope: this.quotePriceScope,
+      });
+      this.quoteOpen.set(false);
+      this.show(`${number} guardada como borrador.`);
+    } catch (error) {
+      this.show(error instanceof Error ? error.message : 'No se pudo crear.');
+    }
+  }
+  useAgreement(id: string) {
+    this.intakeClient = this.store.state().agreements.find((item) => item.id === id)?.client ?? '';
+  }
+  registerIntake() {
+    try {
+      const code = this.store.registerIntake({
+        agreementId: this.intakeAgreement,
+        client: this.intakeClient,
+        vehicle: this.intakeVehicle,
+        brand: this.intakeBrand,
+        model: this.intakeModel,
+      });
+      this.intakeOpen.set(false);
+      this.show(`${code} creado y vinculado al acuerdo.`);
+    } catch (error) {
+      this.show(error instanceof Error ? error.message : 'No se pudo registrar.');
+    }
+  }
+  private show(message: string) {
+    this.toast.set(message);
+    setTimeout(() => this.toast.set(''), 3400);
+  }
 }
