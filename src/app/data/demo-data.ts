@@ -1,0 +1,156 @@
+import { DemoState, InventoryMovement, Product, WorkOrder, WorkStage } from '../domain/models';
+
+const product = (code: string, description: string, category: string, openingStock: number, unitCost: number, unit = 'UN', barcode = '', source: Product['source'] = 'Excel verificado'): Product => ({
+  id: code,
+  code,
+  barcode,
+  description,
+  category,
+  unit,
+  openingStock,
+  minimumStock: unit === 'LT' || unit === 'KG' ? 2 : 10,
+  unitCost,
+  location: `B-${category.slice(0, 3).toUpperCase()}-${String(Math.max(1, Math.round(openingStock) % 12)).padStart(2, '0')}`,
+  source,
+});
+
+export const DEMO_PRODUCTS: Product[] = [
+  product('DIS0011', 'LIJAS ORBITAL P-120 NORGRIP', 'Lijas', 67, 750, 'UN', '1066261131586'),
+  product('DIS0014', 'DISCO NORGRIP P240 X100 UND', 'Lijas', 14, 1000, 'UN', '7891345111116'),
+  product('DIS0018', 'LIJA DISC NORTON P-400', 'Lijas', 320, 496.93, 'UN', '1066261123444'),
+  product('DIS0008', 'LIJA DISCO NORTON P-80', 'Lijas', 313, 603.88, 'UN', '1066261131609'),
+  product('DIS0026', 'LIJA DISCO NORTON P-320', 'Lijas', 233, 496, 'UN', '1066261131692'),
+  product('LIJ0011', 'LIJA AL AGUA P-3000', 'Lijas', 317, 200, 'UN', '7891345769706'),
+  product('LIJ0017', 'GOVA DIAMOND - P220', 'Lijas', 81, 659, 'UN', '8436033004364'),
+  product('CIN0001', 'MASKING AMARILLO 18X40 NORTON', 'Cintas', 60, 1950, 'UN', '8000825961311', 'Demostración'),
+  product('CIN0010', 'CINTA AMARILLA DELGADA 18 X 50MT NOVAS', 'Cintas', 488, 1760, 'UN', '4056807050294'),
+  product('CIN0011', 'CINTA DE ENMASCARAR 18 MM X 50 M CAFE CHAMALEON', 'Cintas', 110, 1938, 'UN', '4056807650005'),
+  product('CIN0017', 'CINTA AMARILLO ANCHO 48X40 NORTON', 'Cintas', 32, 3177, 'UN', '7891345344002'),
+  product('CIN0014', 'CINTA AISLADORA CLASE C 5M', 'Cintas', 30, 400, 'UN', '4056807703947'),
+  product('PQM0062', '505 MASILLA UNIVERSAL DE RELLENO 4 KG CHAMALEON', 'Masillas', 32, 33694, 'KG', '4260099820590'),
+  product('PQM0195', 'RESIN GLASS FIBRA MASILLA X1,5 KG', 'Masillas', 24, 13926, 'KG', '8436033235195'),
+  product('PQM0232', 'MEGAX M1 F5:1 GRIS C 4L', 'Masillas', 24, 47141, 'LT', '8700055553040'),
+  product('PQM0052', 'MASILLA DE FIBRA VIDRIO', 'Masillas', 6, 30900, 'KG', '8700055552067'),
+  product('PQM0045', 'REMOVEDOR DE PINTURA SIPA GALON', 'Pinturas', 15.4, 7107, 'LT', '7805362013360'),
+  product('PNT0001', 'ESMALTE AL AGUA SATIN REVOR BASE', 'Pinturas', 12, 28990, 'LT', '8700055552272', 'Demostración'),
+  product('PNT0102', 'BASE POLIURETANO BLANCO INDUSTRIAL', 'Pinturas', 18, 24990, 'LT', '', 'Demostración'),
+  product('PNT0103', 'BASE POLIURETANO AZUL FRAESPA', 'Pinturas', 14, 27990, 'LT', '', 'Demostración'),
+  product('BAR-450HS', 'BARNIZ UNIX 450HS 2.1 HS CLEAR COAT X 5LT', 'Barnices', 11, 119990, 'LT', '8436033679470'),
+  product('PQM0010', 'BARNIZ UNIX 250HS 2.1 HS CLEAR COAT X 5LT', 'Barnices', 4, 100162, 'LT', '8436033681909'),
+  product('PQM0100', 'SPRAY BARNIZ TEKBOND', 'Barnices', 6, 6207, 'UN', '8700055551992'),
+  product('PQM0200', 'SPRIT BARNIZ', 'Barnices', 6, 5990, 'UN', '8700055551732'),
+  product('PQM0114', 'CATALIZADOR HARDENER C356 X 2,5 L', 'Catalizadores', 22.5, 16761, 'LT', '84360336208788'),
+  product('PQM0235', 'CATALIZADOR MAS ROJ 50G V800', 'Catalizadores', 14, 2606, 'UN', '1066678910118'),
+  product('PQM0027', 'CATALIZADOR P5000 HARDENER X2.5 L', 'Catalizadores', 6, 136406, 'LT', '8436033613092'),
+  product('CAT-C354', 'CATALIZADOR HARDENER C354 X 2,5 L', 'Catalizadores', 14, 16990, 'LT', '', 'Demostración'),
+  product('PQM0034', 'DILUYENTE DUCO', 'Diluyentes', 200, 1667, 'LT', '1066666661237'),
+  product('PQM0236', 'REDUCER FAST DILUYENTE SIKKENS 1L', 'Diluyentes', 120, 11503, 'LT', '8713707186480'),
+  product('PQM0039', 'REDUCER FAST DILUYENTE SIKKENS 5LTS', 'Diluyentes', 115, 62156, 'LT', '7891574737989'),
+  product('PQM0215', 'SELLADOR DE PARABRISA URETANO SIKA', 'Adhesivos', 60, 2490, 'UN', '8700055551725'),
+  product('PQM0105', 'SELLADOR POLYURETHANE RPS 55 - 310 ML', 'Adhesivos', 18, 7009.92, 'UN', '8436033003336'),
+  product('PQM0099', 'ADHESIVO CIANOCRILATO SUPERGLU 20 GR', 'Adhesivos', 8, 4890, 'UN', '8700055551985'),
+  product('PQM0069', 'SUPERGLUE 20GR ADHESIVO', 'Adhesivos', 5, 3600, 'UN', '4056807396842'),
+  product('INS0023', 'GUANTES DE NITRILO NARANJA DIAMANTE L', 'Protección personal', 150, 200, 'PAR', '4065746591461'),
+  product('INS0022', 'GUANTES DE NITRILO NARANJA DIAMANTE XL', 'Protección personal', 50, 200, 'PAR', '4065746591454'),
+  product('INS0171', 'BUZO BLANCO TALLA XL', 'Protección personal', 50, 831, 'UN', '8435800117023'),
+  product('INS0121', 'CALZADO DE SEGURIDAD CAÑA ALTA ULTRA T41', 'Protección personal', 6, 39993, 'PAR', '4099618282966'),
+  product('INS0003', 'COLADOR X190 PEQUEÑO', 'Insumos', 180, 42, 'UN', '1066000000012'),
+  product('INS0021', 'ROBCLOTH PAÑO DC1000 X 200UND', 'Insumos', 40, 6500, 'UN', '8436033691175'),
+];
+
+const stage = (id: string, name: string, owner: string, progress: number, plannedHours: number, actualHours: number): WorkStage => ({
+  id,
+  name,
+  owner,
+  progress,
+  plannedHours,
+  actualHours,
+  status: progress >= 100 ? 'Completada' : progress > 0 ? 'En curso' : 'Pendiente',
+});
+
+export const DEMO_WORK_ORDERS: WorkOrder[] = [
+  {
+    id: 'ot-125', number: 'OT-125', referenceType: 'Demo', sourceLabel: 'Caso comercial ficticio', client: 'Transportes ABC', vehicle: 'ABCD45', model: 'Paradiso G7', brand: 'Marcopolo', service: 'Reparación integral y pintura', status: 'En proceso', economicStatus: 'Aprobada', progress: 58, intakeDate: '2026-10-21', dueDate: '2026-11-14', salePrice: 3000000, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 1000000, laborBudget: 900000, serviceBudget: 300000, otherDirectBudget: 0, productionOverheadBudget: 160000, adminBudget: 120000, externalServicesActual: 180000, otherDirectActual: 60000, productionOverheadActual: 115000, adminActual: 90000, pendingCostEstimate: 770000, laborRate: 12000,
+    stages: [stage('s1', 'Desarme y diagnóstico', 'Supervisor', 100, 14, 13), stage('s2', 'Carrocería', 'Miguel', 80, 30, 26), stage('s3', 'Preparación y lijado', 'Jhony', 62, 38, 24), stage('s4', 'Pintura', 'Carlos', 25, 28, 8), stage('s5', 'Barniz y terminaciones', 'Miguel', 0, 22, 0), stage('s6', 'Control de calidad', 'Supervisor', 0, 8, 0)],
+    materialPlan: [{ productId: 'DIS0011', estimatedQty: 10 }, { productId: 'CIN0010', estimatedQty: 8 }, { productId: 'PQM0062', estimatedQty: 5 }, { productId: 'PNT0102', estimatedQty: 12 }, { productId: 'BAR-450HS', estimatedQty: 8 }, { productId: 'PQM0034', estimatedQty: 10 }], assignedWorkers: ['Jhony', 'Carlos', 'Miguel', 'Supervisor'], financialDataSimulated: true,
+  },
+  {
+    id: 'ot-128', number: 'OT-128', referenceType: 'Demo', sourceLabel: 'Caso ficticio rentable', client: 'Buses Costa Norte', vehicle: 'LXTR82', model: 'Viaggio 1050', brand: 'Marcopolo', service: 'Pintura completa y terminaciones', status: 'Terminada', economicStatus: 'Cerrada económicamente', progress: 100, intakeDate: '2026-09-01', dueDate: '2026-10-10', salePrice: 4600000, approvedExtras: 180000, discounts: 0, commercialAdjustments: 0, materialBudget: 1300000, laborBudget: 1150000, serviceBudget: 350000, otherDirectBudget: 120000, productionOverheadBudget: 260000, adminBudget: 180000, externalServicesActual: 310000, otherDirectActual: 95000, productionOverheadActual: 245000, adminActual: 175000, pendingCostEstimate: 0, laborRate: 12500,
+    stages: [stage('s1', 'Preparación', 'Jhony', 100, 45, 42), stage('s2', 'Pintura', 'Carlos', 100, 50, 48), stage('s3', 'Barniz', 'Miguel', 100, 28, 26), stage('s4', 'Calidad', 'Supervisor', 100, 12, 10)], materialPlan: [{ productId: 'DIS0011', estimatedQty: 30 }, { productId: 'PNT0102', estimatedQty: 20 }, { productId: 'BAR-450HS', estimatedQty: 10 }], assignedWorkers: ['Jhony', 'Carlos', 'Miguel'], financialDataSimulated: true,
+  },
+  {
+    id: 'ot-131', number: 'OT-131', referenceType: 'Demo', sourceLabel: 'Caso ficticio con pérdida', client: 'Ruta Sur SpA', vehicle: 'KJPS74', model: 'Century', brand: 'Busscar', service: 'Reparación por colisión', status: 'Terminada', economicStatus: 'Pendiente de conciliación', progress: 100, intakeDate: '2026-08-15', dueDate: '2026-09-30', salePrice: 2400000, approvedExtras: 120000, discounts: 80000, commercialAdjustments: 0, materialBudget: 800000, laborBudget: 850000, serviceBudget: 220000, otherDirectBudget: 100000, productionOverheadBudget: 180000, adminBudget: 120000, externalServicesActual: 520000, otherDirectActual: 180000, productionOverheadActual: 340000, adminActual: 190000, pendingCostEstimate: 0, laborRate: 13000,
+    stages: [stage('s1', 'Carrocería', 'Miguel', 100, 55, 78), stage('s2', 'Preparación', 'Jhony', 100, 32, 45), stage('s3', 'Pintura', 'Carlos', 100, 38, 54), stage('s4', 'Reproceso', 'Carlos', 100, 0, 22)], materialPlan: [{ productId: 'PQM0062', estimatedQty: 4 }, { productId: 'PNT0102', estimatedQty: 12 }, { productId: 'BAR-450HS', estimatedQty: 6 }], assignedWorkers: ['Miguel', 'Jhony', 'Carlos'], financialDataSimulated: true,
+  },
+  {
+    id: 'ot-134', number: 'OT-134', referenceType: 'Demo', sourceLabel: 'Caso ficticio en riesgo', client: 'Expreso Valle', vehicle: 'TDPK19', model: 'Comil Campione', brand: 'Volvo', service: 'Transformación interior y pintura', status: 'En proceso', economicStatus: 'Con adicionales pendientes', progress: 72, intakeDate: '2026-09-28', dueDate: '2026-11-05', salePrice: 3400000, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 900000, laborBudget: 1050000, serviceBudget: 350000, otherDirectBudget: 120000, productionOverheadBudget: 250000, adminBudget: 160000, externalServicesActual: 480000, otherDirectActual: 165000, productionOverheadActual: 380000, adminActual: 210000, pendingCostEstimate: 560000, laborRate: 12500,
+    stages: [stage('s1', 'Desarme', 'Miguel', 100, 18, 24), stage('s2', 'Carrocería', 'Miguel', 90, 50, 72), stage('s3', 'Preparación', 'Jhony', 65, 40, 52), stage('s4', 'Pintura', 'Carlos', 35, 34, 20)], materialPlan: [{ productId: 'DIS0011', estimatedQty: 18 }, { productId: 'PQM0062', estimatedQty: 4 }, { productId: 'PNT0103', estimatedQty: 15 }], assignedWorkers: ['Miguel', 'Jhony', 'Carlos'], financialDataSimulated: true,
+  },
+  {
+    id: 'ref-ot-116', number: 'OT-116', referenceType: 'OT', sourceLabel: 'Referencia histórica Excel', client: 'Grupo Cabal', vehicle: '47671', model: 'Sin confirmar', brand: 'Sin confirmar', service: 'Trabajo histórico de referencia', status: 'Entregada', economicStatus: 'Sin cotización', progress: 100, intakeDate: '2026-06-01', dueDate: '2026-07-15', salePrice: null, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 0, laborBudget: 0, serviceBudget: 0, otherDirectBudget: 0, productionOverheadBudget: 0, adminBudget: 0, externalServicesActual: 0, otherDirectActual: 0, productionOverheadActual: 0, adminActual: 0, pendingCostEstimate: 0, laborRate: 0, stages: [stage('h1', 'Registro histórico', 'Sin asignar', 100, 0, 0)], materialPlan: [], assignedWorkers: [], financialDataSimulated: false,
+  },
+  {
+    id: 'ref-of-484', number: 'OF-484', referenceType: 'OF', sourceLabel: 'Gantt de Bus 23-10-2026', client: 'Buses Aguilera', vehicle: 'CFVF33', model: 'Marcopolo', brand: 'Marcopolo', service: 'Mantenimiento y reparaciones', status: 'En proceso', economicStatus: 'Sin cotización', progress: 50, intakeDate: '2026-09-22', dueDate: '2026-10-31', salePrice: null, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 0, laborBudget: 0, serviceBudget: 0, otherDirectBudget: 0, productionOverheadBudget: 0, adminBudget: 0, externalServicesActual: 0, otherDirectActual: 0, productionOverheadActual: 0, adminActual: 0, pendingCostEstimate: 0, laborRate: 0, stages: [stage('h1', 'Avance informado en Excel', 'Sin confirmar', 50, 0, 0)], materialPlan: [], assignedWorkers: [], financialDataSimulated: false,
+  },
+  {
+    id: 'ref-of-491', number: 'OF-491', referenceType: 'OF', sourceLabel: 'Gantt de Bus 23-10-2026', client: 'Transporte JJJ', vehicle: 'FXVS91', model: 'Fuso', brand: 'Rosa', service: 'Mantenimiento y reparaciones', status: 'Terminada', economicStatus: 'Sin cotización', progress: 100, intakeDate: '2026-09-25', dueDate: '2026-10-14', salePrice: null, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 0, laborBudget: 0, serviceBudget: 0, otherDirectBudget: 0, productionOverheadBudget: 0, adminBudget: 0, externalServicesActual: 0, otherDirectActual: 0, productionOverheadActual: 0, adminActual: 0, pendingCostEstimate: 0, laborRate: 0, stages: [stage('h1', 'Avance informado en Excel', 'Sin confirmar', 100, 0, 0)], materialPlan: [], assignedWorkers: [], financialDataSimulated: false,
+  },
+  {
+    id: 'ref-ot-52', number: 'OT-52', referenceType: 'OT', sourceLabel: 'Referencia histórica Excel', client: 'Buses Aguilera', vehicle: 'HGWL35', model: 'Sin confirmar', brand: 'Sin confirmar', service: 'Trabajo histórico de referencia', status: 'Entregada', economicStatus: 'Sin cotización', progress: 100, intakeDate: '2026-04-10', dueDate: '2026-05-12', salePrice: null, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 0, laborBudget: 0, serviceBudget: 0, otherDirectBudget: 0, productionOverheadBudget: 0, adminBudget: 0, externalServicesActual: 0, otherDirectActual: 0, productionOverheadActual: 0, adminActual: 0, pendingCostEstimate: 0, laborRate: 0, stages: [], materialPlan: [], assignedWorkers: [], financialDataSimulated: false,
+  },
+  {
+    id: 'ref-ot-59', number: 'OT-59', referenceType: 'OT', sourceLabel: 'Referencia histórica Excel', client: 'Buses Aguilera', vehicle: 'FKW63', model: 'Sin confirmar', brand: 'Sin confirmar', service: 'Trabajo histórico de referencia', status: 'Entregada', economicStatus: 'Sin cotización', progress: 100, intakeDate: '2026-05-02', dueDate: '2026-06-08', salePrice: null, approvedExtras: 0, discounts: 0, commercialAdjustments: 0, materialBudget: 0, laborBudget: 0, serviceBudget: 0, otherDirectBudget: 0, productionOverheadBudget: 0, adminBudget: 0, externalServicesActual: 0, otherDirectActual: 0, productionOverheadActual: 0, adminActual: 0, pendingCostEstimate: 0, laborRate: 0, stages: [], materialPlan: [], assignedWorkers: [], financialDataSimulated: false,
+  },
+];
+
+const movement = (id: string, date: string, type: InventoryMovement['type'], productId: string, quantity: number, stockDelta: number, allocationDelta: number, unitCost: number, workOrderId: string | undefined, reference: string, note?: string, relatedWorkOrderId?: string): InventoryMovement => ({ id, createdAt: date, type, productId, quantity, stockDelta, allocationDelta, unitCost, workOrderId, reference, user: 'Luis · Bodega', note, relatedWorkOrderId });
+
+export const DEMO_MOVEMENTS: InventoryMovement[] = [
+  movement('m1', '2026-10-24T10:12:00', 'Despacho', 'DIS0011', 8, -8, 8, 750, 'ot-125', 'V-00091', 'Entrega para preparación y lijado'),
+  movement('m2', '2026-10-24T10:12:00', 'Despacho', 'CIN0010', 4, -4, 4, 1760, 'ot-125', 'V-00091'),
+  movement('m3', '2026-10-24T10:12:00', 'Despacho', 'PQM0062', 0.8, -0.8, 0.8, 33694, 'ot-125', 'V-00091'),
+  movement('m4', '2026-10-29T15:40:00', 'Despacho', 'BAR-450HS', 0.5, -0.5, 0.5, 119990, 'ot-125', 'V-00096'),
+  movement('m5', '2026-10-03T09:20:00', 'Despacho', 'PNT0102', 20, -20, 20, 24990, 'ot-128', 'V-00074'),
+  movement('m6', '2026-10-03T09:20:00', 'Despacho', 'BAR-450HS', 10, -10, 10, 119990, 'ot-128', 'V-00074'),
+  movement('m7', '2026-10-03T09:20:00', 'Despacho', 'DIS0011', 28, -28, 28, 750, 'ot-128', 'V-00074'),
+  movement('m8', '2026-09-18T11:00:00', 'Despacho', 'PQM0062', 8, -8, 8, 33694, 'ot-131', 'V-00061'),
+  movement('m9', '2026-09-18T11:00:00', 'Despacho', 'PNT0102', 18, -18, 18, 24990, 'ot-131', 'V-00061'),
+  movement('m10', '2026-09-18T11:00:00', 'Despacho', 'BAR-450HS', 7, -7, 7, 119990, 'ot-131', 'V-00061'),
+  movement('m11', '2026-10-16T14:20:00', 'Despacho', 'PNT0103', 18, -18, 18, 27990, 'ot-134', 'V-00084'),
+  movement('m12', '2026-10-16T14:20:00', 'Despacho', 'PQM0062', 6, -6, 6, 33694, 'ot-134', 'V-00084'),
+  movement('m13', '2026-10-16T14:20:00', 'Despacho', 'BAR-450HS', 6, -6, 6, 119990, 'ot-134', 'V-00084'),
+  movement('m14', '2026-10-18T09:12:00', 'Despacho', 'DIS0011', 24, -24, 24, 750, 'ot-134', 'V-00086'),
+];
+
+export function createDemoState(): DemoState {
+  return {
+    products: structuredClone(DEMO_PRODUCTS),
+    workOrders: structuredClone(DEMO_WORK_ORDERS),
+    movements: structuredClone(DEMO_MOVEMENTS),
+    vouchers: [
+      { id: 'v91', number: 'V-00091', createdAt: '2026-10-24T10:12:00', workOrderId: 'ot-125', requester: 'Jhony', receiver: 'Jhony', warehouseKeeper: 'Luis', stage: 'Preparación y lijado', status: 'Emitido', lines: [{ productId: 'DIS0011', quantity: 8, unitCost: 750 }, { productId: 'CIN0010', quantity: 4, unitCost: 1760 }, { productId: 'PQM0062', quantity: 0.8, unitCost: 33694 }], note: 'Entrega inicial según plan de materiales.' },
+      { id: 'v96', number: 'V-00096', createdAt: '2026-10-29T15:40:00', workOrderId: 'ot-125', requester: 'Carlos', receiver: 'Carlos', warehouseKeeper: 'Luis', stage: 'Pintura', status: 'Emitido', lines: [{ productId: 'BAR-450HS', quantity: 0.5, unitCost: 119990 }], note: 'Prueba de terminación.' },
+    ],
+    requests: [
+      { id: 'r1', createdAt: '2026-11-03T09:40:00', workOrderId: 'ot-125', requester: 'Jhony', stage: 'Preparación y lijado', productId: 'DIS0011', quantity: 5, status: 'Pendiente', note: 'Se requiere completar sector posterior.' },
+      { id: 'r2', createdAt: '2026-11-03T10:05:00', workOrderId: 'ot-134', requester: 'Carlos', stage: 'Pintura', productId: 'PNT0103', quantity: 2, status: 'Pendiente', note: 'Retoque lateral derecho.' },
+    ],
+    agreements: [
+      { id: 'agr-abc', quoteNumber: 'COT-2026-041', client: 'Transportes ABC', service: 'Reparación integral y pintura', netPrice: 3000000, taxRate: 0.19, status: 'Aprobada', units: 1, estimatedCost: 2200000, date: '2026-10-12' },
+      { id: 'agr-multi', quoteNumber: 'COT-2026-044', client: 'Buses Costa Norte', service: 'Pintura de flota', netPrice: 12500000, taxRate: 0.19, status: 'Aprobada', units: 5, estimatedCost: 8700000, date: '2026-10-28' },
+    ],
+    intakes: [
+      { id: 'int-abc', code: 'ING-2026-0088', client: 'Transportes ABC', vehicle: 'ABCD45', brand: 'Marcopolo', model: 'Paradiso G7', agreementId: 'agr-abc', date: '2026-10-21T08:45:00', status: 'OT creada' },
+    ],
+    audit: [
+      { id: 'a1', createdAt: '2026-11-03T10:05:00', title: 'Solicitud con posible exceso', detail: 'OT-134 solicita pintura por encima del plan vigente.', kind: 'warning' },
+      { id: 'a2', createdAt: '2026-11-03T09:40:00', title: 'Solicitud recibida', detail: 'Jhony solicitó 5 lijas P-120 para OT-125.', kind: 'info' },
+      { id: 'a3', createdAt: '2026-11-02T17:35:00', title: 'Avance actualizado', detail: 'OT-125 alcanzó 58% de avance físico.', kind: 'success' },
+      { id: 'a4', createdAt: '2026-11-01T15:10:00', title: 'Riesgo económico detectado', detail: 'OT-134 proyecta un margen inferior al mínimo configurado.', kind: 'danger' },
+    ],
+    offline: false,
+    pendingSync: 0,
+    lastSync: '2026-11-03T10:15:00',
+    role: 'Gerente',
+  };
+}
