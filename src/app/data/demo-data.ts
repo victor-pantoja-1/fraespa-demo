@@ -7,6 +7,7 @@ import {
   WorkOrder,
   WorkStage,
 } from '../domain/models';
+import { pendingCostTotal, recommendedPendingCosts } from '../domain/calculations';
 
 const product = (
   code: string,
@@ -323,17 +324,22 @@ export const DEMO_WORK_ORDERS: WorkOrder[] = [
     approvedExtras: 0,
     discounts: 0,
     commercialAdjustments: 0,
-    materialBudget: 1000000,
-    laborBudget: 900000,
-    serviceBudget: 300000,
-    otherDirectBudget: 0,
-    productionOverheadBudget: 160000,
-    adminBudget: 120000,
+    materialBudget: 600000,
+    laborBudget: 950000,
+    serviceBudget: 220000,
+    otherDirectBudget: 70000,
+    productionOverheadBudget: 180000,
+    adminBudget: 180000,
     externalServicesActual: 180000,
     otherDirectActual: 60000,
     productionOverheadActual: 115000,
     adminActual: 90000,
-    pendingCostEstimate: 770000,
+    pendingCostEstimate: 0,
+    budgetExplanation:
+      'El presupuesto de la OT suma $2.200.000 y coincide con el costo estimado comercial de COT-2026-041. Valores financieros ficticios para demostración.',
+    productionOverheadAllocation:
+      'Asignación demostrativa por OT según horas productivas previstas.',
+    adminAllocation: 'Asignación demostrativa proporcional al ingreso presupuestado de la OT.',
     laborRate: 12000,
     stages: [
       stage('s1', 'Desarme y diagnóstico', 'Supervisor', 100, 14, 13, '2026-10-21', '2026-10-23'),
@@ -716,6 +722,45 @@ const timeEntry = (
   createdAt: `${date}T18:00:00`,
 });
 
+const spreadTimeEntries = (
+  idPrefix: string,
+  workOrderId: string,
+  stageId: string,
+  employeeId: string,
+  startDate: string,
+  totalHours: number,
+  hourlyCost: number,
+  hourType: TimeEntry['hourType'] = 'Normal',
+): TimeEntry[] => {
+  const result: TimeEntry[] = [];
+  const cursor = new Date(`${startDate}T12:00:00`);
+  let remaining = totalHours;
+  let sequence = 1;
+  while (remaining > 0) {
+    const weekday = cursor.getDay();
+    if (weekday !== 0 && weekday !== 6) {
+      const hours = Math.min(8, remaining);
+      const date = cursor.toISOString().slice(0, 10);
+      result.push(
+        timeEntry(
+          `${idPrefix}-${sequence}`,
+          workOrderId,
+          stageId,
+          employeeId,
+          date,
+          hours,
+          hourlyCost,
+          hourType,
+        ),
+      );
+      remaining -= hours;
+      sequence += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return result;
+};
+
 export const DEMO_MOVEMENTS: InventoryMovement[] = [
   movement(
     'm1',
@@ -878,8 +923,8 @@ export const DEMO_MOVEMENTS: InventoryMovement[] = [
 ];
 
 export function createDemoState(): DemoState {
-  return {
-    schemaVersion: 2,
+  const state: DemoState = {
+    schemaVersion: 3,
     products: structuredClone(DEMO_PRODUCTS),
     workOrders: structuredClone(DEMO_WORK_ORDERS),
     movements: structuredClone(DEMO_MOVEMENTS),
@@ -1149,22 +1194,115 @@ export function createDemoState(): DemoState {
       },
     ],
     timeEntries: [
-      timeEntry('te-125-1', 'ot-125', 's1', 'emp-supervisor', '2026-10-23', 13, 15500),
-      timeEntry('te-125-2', 'ot-125', 's2', 'emp-miguel', '2026-10-30', 26, 12800),
-      timeEntry('te-125-3', 'ot-125', 's3', 'emp-jhony', '2026-11-02', 24, 11000),
-      timeEntry('te-125-4', 'ot-125', 's4', 'emp-carlos', '2026-11-03', 8, 13500),
-      timeEntry('te-128-1', 'ot-128', 's1', 'emp-jhony', '2026-09-12', 42, 11000),
-      timeEntry('te-128-2', 'ot-128', 's2', 'emp-carlos', '2026-09-26', 48, 13500),
-      timeEntry('te-128-3', 'ot-128', 's3', 'emp-miguel', '2026-10-04', 26, 12800),
-      timeEntry('te-128-4', 'ot-128', 's4', 'emp-supervisor', '2026-10-10', 10, 15500),
-      timeEntry('te-131-1', 'ot-131', 's1', 'emp-miguel', '2026-08-30', 78, 12800),
-      timeEntry('te-131-2', 'ot-131', 's2', 'emp-jhony', '2026-09-08', 45, 11000),
-      timeEntry('te-131-3', 'ot-131', 's3', 'emp-carlos', '2026-09-20', 54, 13500),
-      timeEntry('te-131-4', 'ot-131', 's4', 'emp-carlos', '2026-09-28', 22, 13500, 'Reproceso'),
-      timeEntry('te-134-1', 'ot-134', 's1', 'emp-miguel', '2026-10-01', 24, 12800),
-      timeEntry('te-134-2', 'ot-134', 's2', 'emp-miguel', '2026-10-16', 72, 12800),
-      timeEntry('te-134-3', 'ot-134', 's3', 'emp-jhony', '2026-10-26', 52, 11000),
-      timeEntry('te-134-4', 'ot-134', 's4', 'emp-carlos', '2026-11-03', 20, 13500),
+      ...spreadTimeEntries('te-125-s1', 'ot-125', 's1', 'emp-supervisor', '2026-10-21', 13, 15500),
+      ...spreadTimeEntries('te-125-s2', 'ot-125', 's2', 'emp-miguel', '2026-10-23', 26, 12800),
+      ...spreadTimeEntries('te-125-s3', 'ot-125', 's3', 'emp-jhony', '2026-10-28', 24, 11000),
+      ...spreadTimeEntries('te-125-s4', 'ot-125', 's4', 'emp-carlos', '2026-11-03', 8, 13500),
+      ...spreadTimeEntries('te-128-s1', 'ot-128', 's1', 'emp-jhony', '2026-09-01', 42, 11000),
+      ...spreadTimeEntries('te-128-s2', 'ot-128', 's2', 'emp-carlos', '2026-09-15', 48, 13500),
+      ...spreadTimeEntries('te-128-s3', 'ot-128', 's3', 'emp-miguel', '2026-09-28', 26, 12800),
+      ...spreadTimeEntries('te-128-s4', 'ot-128', 's4', 'emp-supervisor', '2026-10-05', 10, 15500),
+      ...spreadTimeEntries('te-131-s1', 'ot-131', 's1', 'emp-miguel', '2026-08-17', 78, 12800),
+      ...spreadTimeEntries('te-131-s2', 'ot-131', 's2', 'emp-jhony', '2026-08-31', 45, 11000),
+      ...spreadTimeEntries('te-131-s3', 'ot-131', 's3', 'emp-carlos', '2026-09-09', 54, 13500),
+      ...spreadTimeEntries(
+        'te-131-s4',
+        'ot-131',
+        's4',
+        'emp-carlos',
+        '2026-09-21',
+        22,
+        13500,
+        'Reproceso',
+      ),
+      ...spreadTimeEntries('te-134-s1', 'ot-134', 's1', 'emp-miguel', '2026-09-28', 24, 12800),
+      ...spreadTimeEntries('te-134-s2', 'ot-134', 's2', 'emp-miguel', '2026-10-01', 72, 12800),
+      ...spreadTimeEntries('te-134-s3', 'ot-134', 's3', 'emp-jhony', '2026-10-14', 52, 11000),
+      ...spreadTimeEntries('te-134-s4', 'ot-134', 's4', 'emp-carlos', '2026-10-27', 20, 13500),
+    ],
+    directCostEntries: [
+      {
+        id: 'dc-125-1',
+        workOrderId: 'ot-125',
+        type: 'Servicio externo',
+        date: '2026-10-27',
+        description: 'Rectificado especializado',
+        amount: 180000,
+        provider: 'Proveedor demo',
+        reference: 'REF-DEMO-125',
+        createdAt: '2026-10-27T15:00:00',
+      },
+      {
+        id: 'dc-125-2',
+        workOrderId: 'ot-125',
+        type: 'Otro costo directo',
+        date: '2026-10-29',
+        description: 'Traslado especial',
+        amount: 60000,
+        provider: 'Proveedor demo',
+        reference: 'REF-DEMO-126',
+        createdAt: '2026-10-29T15:00:00',
+      },
+      {
+        id: 'dc-128-1',
+        workOrderId: 'ot-128',
+        type: 'Servicio externo',
+        date: '2026-09-22',
+        description: 'Servicio especializado',
+        amount: 310000,
+        provider: 'Proveedor demo',
+        createdAt: '2026-09-22T15:00:00',
+      },
+      {
+        id: 'dc-128-2',
+        workOrderId: 'ot-128',
+        type: 'Otro costo directo',
+        date: '2026-09-24',
+        description: 'Consumible directo',
+        amount: 95000,
+        provider: 'Proveedor demo',
+        createdAt: '2026-09-24T15:00:00',
+      },
+      {
+        id: 'dc-131-1',
+        workOrderId: 'ot-131',
+        type: 'Servicio externo',
+        date: '2026-09-12',
+        description: 'Reparación especializada',
+        amount: 520000,
+        provider: 'Proveedor demo',
+        createdAt: '2026-09-12T15:00:00',
+      },
+      {
+        id: 'dc-131-2',
+        workOrderId: 'ot-131',
+        type: 'Otro costo directo',
+        date: '2026-09-18',
+        description: 'Insumos extraordinarios',
+        amount: 180000,
+        provider: 'Proveedor demo',
+        createdAt: '2026-09-18T15:00:00',
+      },
+      {
+        id: 'dc-134-1',
+        workOrderId: 'ot-134',
+        type: 'Servicio externo',
+        date: '2026-10-18',
+        description: 'Servicio de transformación',
+        amount: 480000,
+        provider: 'Proveedor demo',
+        createdAt: '2026-10-18T15:00:00',
+      },
+      {
+        id: 'dc-134-2',
+        workOrderId: 'ot-134',
+        type: 'Otro costo directo',
+        date: '2026-10-20',
+        description: 'Material directo no inventariable',
+        amount: 165000,
+        provider: 'Proveedor demo',
+        createdAt: '2026-10-20T15:00:00',
+      },
     ],
     agreements: [
       {
@@ -1244,4 +1382,38 @@ export function createDemoState(): DemoState {
     lastSync: '2026-11-03T10:15:00',
     role: 'Gerente',
   };
+  for (const order of state.workOrders) {
+    if (!order.financialDataSimulated) continue;
+    order.productionOverheadAllocation ??=
+      'Asignación demostrativa por OT según horas productivas previstas.';
+    order.adminAllocation ??=
+      'Asignación demostrativa proporcional al ingreso presupuestado de la OT.';
+    order.budgetExplanation ??=
+      'Valores financieros ficticios usados únicamente para demostrar el modelo de gestión.';
+    if (order.economicStatus === 'Cerrada económicamente') {
+      order.pendingCosts = {
+        materials: 0,
+        labor: 0,
+        externalServices: 0,
+        otherDirect: 0,
+        productionOverhead: 0,
+        administration: 0,
+        updatedAt: order.dueDate,
+        explanation: 'OT demostrativa conciliada: no quedan costos pendientes.',
+        source: 'Ajuste manual',
+      };
+      order.pendingCostEstimate = 0;
+      order.economicClosedAt = `${order.dueDate}T18:00:00`;
+      order.economicClosedBy = 'Gerente';
+    } else {
+      order.pendingCosts = recommendedPendingCosts(
+        order,
+        state.movements,
+        state.timeEntries,
+        '2026-11-04T09:00:00',
+      );
+      order.pendingCostEstimate = pendingCostTotal(order.pendingCosts);
+    }
+  }
+  return state;
 }

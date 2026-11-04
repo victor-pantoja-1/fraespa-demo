@@ -41,18 +41,19 @@ npm test -- --watch=false
 - Listado y ficha integral de OT, con OF y OT tratados como identificadores independientes.
 - Etapas, responsables, horas reales y avance físico separados del consumo presupuestario.
 - Plan de materiales con cantidades previstas, asignación neta, desviación y costo provisional.
-- Solicitudes de bodega, alertas por exceso no bloqueantes y despacho con validación de stock.
+- Solicitudes de bodega, alertas por exceso no bloqueantes y despacho con validación del stock total agrupado por producto, incluso cuando una solicitud repite el material en varias líneas.
 - Vale correlativo con costo histórico, responsables, firmas y vista de impresión del navegador.
 - Devoluciones utilizables que recuperan stock y reducen el costo provisional.
 - Transferencias entre OT que cambian asignaciones sin duplicar ni mover stock físico.
 - Inventario calculado desde saldos iniciales y movimientos, entradas y Kardex demostrativo.
-- Rentabilidad presupuestada, proyectada y final; margen de contribución y resultado gerencial.
+- Rentabilidad con presupuesto original, costo acumulado, pendiente por categoría, adicionales y resultado final solo después de la conciliación económica.
+- Registro de servicios externos y otros costos directos, recálculo explicable del saldo pendiente y cierre económico validado.
 - Casos de OT rentable, con pérdida y en riesgo de sobrecosto.
 - Historial y estimación explicable basada en trabajos comparables, sin afirmar uso de IA.
-- Exportación CSV real de órdenes y resultados.
+- Exportación CSV real de costos por OT, movimientos, materiales recibidos por trabajador, horas y mano de obra, y rentabilidad agrupada por mes.
 - Selector demostrativo de roles y ocultación de datos financieros para roles no autorizados.
 - Centro de sincronización demostrativo, modo offline, cola local y restauración del seed.
-- Recorrido guiado de 12 escenas para el caso Transportes ABC.
+- Recorrido guiado de 12 escenas con línea base verificable, reconocimiento de operaciones nuevas y reinicio completo.
 - Diseño responsive con navegación móvil y operaciones rápidas.
 
 ## Datos de referencia
@@ -60,6 +61,8 @@ npm test -- --watch=false
 Los productos de demostración reutilizan códigos, descripciones, saldos y costos verificados en los Excel entregados. Los casos históricos preservan sus identificadores como referencias; no se infieren relaciones entre OF y OT.
 
 Los precios de venta, costos laborales, indirectos y resultados comerciales están marcados como simulados. Cuando un registro histórico no tiene precio de venta, la interfaz muestra **“Rentabilidad no disponible — falta precio de venta”**.
+
+En el caso ficticio OT-125, el presupuesto por categorías suma **$2.200.000** y coincide con el costo estimado de la cotización COT-2026-041. Las horas ficticias se distribuyen en días hábiles y jornadas de hasta ocho horas. Los criterios demostrativos de asignación de gastos indirectos y administrativos se muestran junto al cálculo económico.
 
 ## Estructura
 
@@ -102,10 +105,22 @@ Esto reemplaza únicamente el estado local de la demo. Los Excel originales no s
 ## Reglas verificadas por pruebas
 
 - Existencias por movimientos.
+- Rechazo atómico de dos líneas del mismo producto cuya suma supera el stock disponible.
 - Valorización histórica de vales.
 - Devoluciones y ajuste de asignación.
 - Transferencias sin duplicación de stock.
 - Alertas por exceso del plan.
 - Costos de mano de obra.
-- Rentabilidad y separación de costo acumulado/proyectado.
+- Rentabilidad dentro del presupuesto y sobrecosto real, sin duplicar el costo pendiente al registrar materiales u horas.
+- Separación de presupuesto original, acumulado, pendiente y adicional.
+- Distribución de horas ficticias en jornadas razonables.
 - Serialización completa del estado para persistencia local.
+
+## Resultado de la auditoría final
+
+Ejecución del 4 de noviembre de 2026:
+
+- `npm test -- --watch=false`: **22 pruebas aprobadas**.
+- `npm run build`: **compilación de producción aprobada**.
+- No se añadió una suite E2E porque el repositorio no incluye un runner de navegador. El flujo central está cubierto por pruebas integradas del estado y las reglas de negocio.
+- La revisión interactiva de escritorio, móvil y el diálogo real de impresión no pudo completarse en el entorno automatizado por una restricción del controlador de navegador local. La compilación responsive y la hoja `@media print` A4 sí forman parte del build; antes de la presentación debe realizarse una comprobación manual final en el navegador y la impresora/PDF objetivo.

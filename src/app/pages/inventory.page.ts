@@ -16,16 +16,20 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
         <h1 class="section-heading mt-1">Inventario y productos</h1>
         <p class="section-copy">Stock calculado desde saldo inicial y movimientos; sin BUSCARV.</p>
       </div>
-      <button class="btn-primary" (click)="entryOpen.set(true)">
-        <span appLucide="PackagePlus"></span>Registrar entrada
-      </button>
+      @if (canOperate()) {
+        <button class="btn-primary" (click)="entryOpen.set(true)">
+          <span appLucide="PackagePlus"></span>Registrar entrada
+        </button>
+      }
     </section>
     <section class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <article class="stat-card">
-        <div class="text-xs font-bold text-slate-500">Productos activos</div>
-        <div class="stat-value">{{ store.state().products.length }}</div>
-        <div class="stat-label">Catálogo demostrativo curado</div>
-      </article>
+      @if (canSeeCosts()) {
+        <article class="stat-card">
+          <div class="text-xs font-bold text-slate-500">Productos activos</div>
+          <div class="stat-value">{{ store.state().products.length }}</div>
+          <div class="stat-label">Catálogo demostrativo curado</div>
+        </article>
+      }
       <article class="stat-card">
         <div class="text-xs font-bold text-slate-500">Valor de inventario</div>
         <div class="stat-value text-xl">{{ clp(inventoryValue()) }}</div>
@@ -73,7 +77,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
               <th>Ubicación</th>
               <th>Stock físico</th>
               <th>Mínimo</th>
-              <th>Costo vigente</th>
+              @if (canSeeCosts()) {
+                <th>Costo vigente</th>
+              }
               <th>Estado</th>
             </tr>
           </thead>
@@ -103,7 +109,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   {{ row.stock | number: '1.0-2' }} {{ row.product.unit }}
                 </td>
                 <td>{{ row.product.minimumStock }} {{ row.product.unit }}</td>
-                <td>{{ clp(row.product.unitCost) }}</td>
+                @if (canSeeCosts()) {
+                  <td>{{ clp(row.product.unitCost) }}</td>
+                }
                 <td>
                   <span
                     class="badge"
@@ -137,7 +145,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
               <th>Producto</th>
               <th>Delta stock</th>
               <th>OT</th>
-              <th>Costo histórico</th>
+              @if (canSeeCosts()) {
+                <th>Costo histórico</th>
+              }
             </tr>
           </thead>
           <tbody>
@@ -157,7 +167,9 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   {{ movement.stockDelta > 0 ? '+' : '' }}{{ movement.stockDelta }}
                 </td>
                 <td>{{ orderNumber(movement.workOrderId) }}</td>
-                <td>{{ clp(movement.unitCost) }}</td>
+                @if (canSeeCosts()) {
+                  <td>{{ clp(movement.unitCost) }}</td>
+                }
               </tr>
             }
           </tbody>
@@ -241,6 +253,14 @@ export class InventoryPage {
   readonly category = signal('Todas');
   readonly entryOpen = signal(false);
   readonly toast = signal('');
+  readonly canSeeCosts = computed(() =>
+    ['Administrador', 'Gerente', 'Jefe de taller', 'Bodeguero', 'Compras'].includes(
+      this.store.state().role,
+    ),
+  );
+  readonly canOperate = computed(() =>
+    ['Administrador', 'Bodeguero', 'Compras'].includes(this.store.state().role),
+  );
   readonly categories = computed(() =>
     [...new Set(this.store.state().products.map((item) => item.category))].sort(),
   );
@@ -279,6 +299,7 @@ export class InventoryPage {
   }
   saveEntry(): void {
     try {
+      if (!this.canOperate()) throw new Error('El rol actual no puede registrar entradas.');
       this.store.registerInventoryEntry(
         this.entryProduct,
         Number(this.entryQty),

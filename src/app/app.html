@@ -152,7 +152,8 @@
       class="whitespace-normal break-words border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs font-bold leading-5 text-amber-900 sm:px-6"
     >
       <span class="mr-2 inline-block h-2 w-2 rounded-full bg-amber-500"></span>Entorno de
-      demostración — Datos financieros simulados
+      demostración — Datos financieros simulados · Los roles son visibilidad local de la demo, no
+      autenticación ni seguridad productiva
     </div>
     <main class="mx-auto max-w-[1680px] p-4 pb-24 sm:p-6 lg:p-8 lg:pb-10"><router-outlet /></main>
   </div>
@@ -182,9 +183,13 @@
         </p>
       }
       <div class="mt-5 flex items-center justify-between">
-        <button class="btn-secondary" [disabled]="guideStep() === 0" (click)="moveGuide(-1)">
-          Anterior</button
-        ><button class="btn-primary" [disabled]="!guideReady()" (click)="moveGuide(1)">
+        <div class="flex gap-2">
+          <button class="btn-secondary" (click)="restartGuide()">Reiniciar</button>
+          <button class="btn-secondary" [disabled]="guideStep() === 0" (click)="moveGuide(-1)">
+            Anterior
+          </button>
+        </div>
+        <button class="btn-primary" [disabled]="!guideReady()" (click)="moveGuide(1)">
           {{ guideStep() === guide.length - 1 ? 'Finalizar' : 'Siguiente'
           }}<span appLucide="ArrowRight" [iconSize]="16"></span>
         </button>

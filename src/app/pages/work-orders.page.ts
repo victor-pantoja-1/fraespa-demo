@@ -262,7 +262,11 @@ export class WorkOrdersPage {
   clp = formatClp;
   intakeId = this.availableIntakes()[0]?.id ?? '';
   service = 'Reparación y pintura';
-  dueDate = '2026-11-20';
+  dueDate = (() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 14);
+    return date.toISOString().slice(0, 10);
+  })();
   template: 'Pintura' | 'Reparación' | 'Preparación' = 'Pintura';
   workers: string[] = ['Jhony'];
   count(status: string) {

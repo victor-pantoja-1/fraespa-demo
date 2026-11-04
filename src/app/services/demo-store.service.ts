@@ -7,6 +7,8 @@ import {
   exceedsPlan,
   isValidQuantity,
   profitability,
+  recommendedPendingCosts,
+  pendingCostTotal,
   roundMoney,
   stageHours,
   stockForProduct,
@@ -14,6 +16,7 @@ import {
 import {
   AuditEvent,
   CommercialAgreement,
+  DirectCostEntry,
   DemoState,
   InventoryMovement,
   MaterialRequest,
@@ -87,13 +90,13 @@ export class DemoStore {
   private async hydrate(): Promise<void> {
     try {
       const stored = await this.database.states.get('main');
-      if (stored?.payload?.schemaVersion === 2) this.internalState.set(stored.payload);
+      if (stored?.payload?.schemaVersion === 3) this.internalState.set(stored.payload);
       else if (stored?.payload) this.internalState.set(createDemoState());
     } catch (error) {
       try {
         const fallback = localStorage.getItem('fraespa-demo-state');
         const parsed = fallback ? (JSON.parse(fallback) as DemoState) : null;
-        if (parsed?.schemaVersion === 2) this.internalState.set(parsed);
+        if (parsed?.schemaVersion === 3) this.internalState.set(parsed);
       } catch {
         this.storageError.set(
           `No fue posible recuperar el estado local: ${error instanceof Error ? error.message : 'error desconocido'}`,
@@ -161,6 +164,12 @@ export class DemoStore {
       detail,
       kind,
     });
+  }
+
+  private refreshAutomaticPending(state: DemoState, order: WorkOrder): void {
+    if (order.pendingCosts?.source === 'Ajuste manual') return;
+    order.pendingCosts = recommendedPendingCosts(order, state.movements, state.timeEntries);
+    order.pendingCostEstimate = pendingCostTotal(order.pendingCosts);
   }
 
   product(productId: string) {
@@ -317,13 +326,25 @@ export class DemoStore {
             throw new Error('La entrega supera el saldo pendiente de la solicitud.');
           const product = state.products.find((item) => item.id === line.productId);
           if (!product) throw new Error('Producto no encontrado.');
-          if (quantity > stockForProduct(product, state.movements))
-            throw new Error(
-              `Stock insuficiente de ${product.code}. Disponible: ${stockForProduct(product, state.movements)} ${product.unit}.`,
-            );
           const alert = exceedsPlan(order, product.id, quantity, state.movements);
           return { line, product, quantity, alert };
         });
+        if (new Set(selected.map((delivery) => delivery.lineId)).size !== selected.length)
+          throw new Error('No se puede incluir dos veces la misma línea de solicitud.');
+        const totalsByProduct = new Map<string, number>();
+        for (const item of prepared)
+          totalsByProduct.set(
+            item.product.id,
+            roundMoney((totalsByProduct.get(item.product.id) ?? 0) + item.quantity),
+          );
+        for (const [productId, total] of totalsByProduct) {
+          const product = state.products.find((item) => item.id === productId)!;
+          const available = stockForProduct(product, state.movements);
+          if (total > available)
+            throw new Error(
+              `Stock insuficiente de ${product.code}. Las líneas suman ${total} ${product.unit} y hay ${available} disponibles.`,
+            );
+        }
         if (
           prepared.some((item) => item.alert.exceeds) &&
           !(justification?.trim() || request.excessJustification?.trim())
@@ -373,6 +394,7 @@ export class DemoStore {
           0,
         );
         request.status = remaining > 0 ? 'Parcial' : 'Entregada';
+        this.refreshAutomaticPending(state, order);
         const voucher: MaterialVoucher = {
           id: voucherId,
           requestId: request.id,
@@ -624,6 +646,23 @@ export class DemoStore {
           productionOverheadActual: 0,
           adminActual: 0,
           pendingCostEstimate: agreement.estimatedCost / agreement.units,
+          pendingCosts: {
+            materials: (agreement.estimatedCost * 0.4) / agreement.units,
+            labor: (agreement.estimatedCost * 0.35) / agreement.units,
+            externalServices: (agreement.estimatedCost * 0.15) / agreement.units,
+            otherDirect: 0,
+            productionOverhead: (agreement.estimatedCost * 0.07) / agreement.units,
+            administration: (agreement.estimatedCost * 0.03) / agreement.units,
+            updatedAt: new Date().toISOString(),
+            explanation: 'Estimación inicial distribuida según el presupuesto comercial aprobado.',
+            source: 'Recalculado desde presupuesto',
+          },
+          productionOverheadAllocation:
+            'Asignación demostrativa por OT según horas productivas previstas.',
+          adminAllocation:
+            'Asignación demostrativa proporcional al ingreso presupuestado de la OT.',
+          budgetExplanation:
+            'Presupuesto unitario derivado del costo estimado comercial del acuerdo aprobado.',
           laborRate: 0,
           stages,
           materialPlan: templates[input.template].map(([productId, estimatedQty]) => ({
@@ -810,6 +849,7 @@ export class DemoStore {
           });
           remaining = roundMoney(remaining - used);
         }
+        this.refreshAutomaticPending(state, order);
         this.event(
           state,
           'Devolución valorizada históricamente',
@@ -886,6 +926,8 @@ export class DemoStore {
           );
           remaining = roundMoney(remaining - used);
         }
+        this.refreshAutomaticPending(state, from);
+        this.refreshAutomaticPending(state, to);
         this.event(
           state,
           'Transferencia valorizada históricamente',
@@ -937,6 +979,7 @@ export class DemoStore {
           createdAt: new Date().toISOString(),
         });
         stage.actualHours = stageHours(order.id, stage.id, state.timeEntries);
+        this.refreshAutomaticPending(state, order);
         this.event(
           state,
           'Horas registradas',
@@ -947,6 +990,141 @@ export class DemoStore {
       true,
       'Registro de horas',
       `${employeeId} · ${workOrderId}`,
+    );
+  }
+
+  registerDirectCost(
+    workOrderId: string,
+    type: DirectCostEntry['type'],
+    date: string,
+    description: string,
+    amount: number,
+    provider = '',
+    reference = '',
+  ): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        if (!order || !date || !description.trim() || !Number.isFinite(amount) || amount <= 0)
+          throw new Error('Completa fecha, descripción y monto válido.');
+        if (order.economicStatus === 'Cerrada económicamente')
+          throw new Error('La OT ya está cerrada económicamente.');
+        state.directCostEntries.unshift({
+          id: crypto.randomUUID(),
+          workOrderId,
+          type,
+          date,
+          description: description.trim(),
+          amount: roundMoney(amount),
+          provider: provider.trim() || undefined,
+          reference: reference.trim() || undefined,
+          createdAt: new Date().toISOString(),
+        });
+        if (type === 'Servicio externo')
+          order.externalServicesActual = roundMoney(order.externalServicesActual + amount);
+        else order.otherDirectActual = roundMoney(order.otherDirectActual + amount);
+        this.refreshAutomaticPending(state, order);
+        order.economicStatus = 'Pendiente de conciliación';
+        this.event(
+          state,
+          'Costo directo registrado',
+          `${order.number}: ${type} · ${description.trim()} · ${roundMoney(amount)}.`,
+          'info',
+        );
+      },
+      true,
+      'Costo directo',
+      `${workOrderId} · ${type}`,
+    );
+  }
+
+  recalculatePendingCosts(workOrderId: string): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        if (!order) throw new Error('OT no encontrada.');
+        const pending = recommendedPendingCosts(order, state.movements, state.timeEntries);
+        order.pendingCosts = pending;
+        order.pendingCostEstimate = pendingCostTotal(pending);
+        if (order.economicStatus !== 'Cerrada económicamente')
+          order.economicStatus = 'Pendiente de conciliación';
+        this.event(
+          state,
+          'Costos pendientes recalculados',
+          `${order.number}: presupuesto por categoría menos costos ya acumulados; no se duplicaron gastos registrados.`,
+          'success',
+        );
+      },
+      true,
+      'Recalcular costos pendientes',
+      workOrderId,
+    );
+  }
+
+  updatePendingCosts(
+    workOrderId: string,
+    values: Omit<NonNullable<WorkOrder['pendingCosts']>, 'updatedAt' | 'explanation' | 'source'>,
+    explanation: string,
+  ): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        if (
+          !order ||
+          !explanation.trim() ||
+          Object.values(values).some((value) => !Number.isFinite(value) || value < 0)
+        )
+          throw new Error('Los montos deben ser positivos y el ajuste requiere explicación.');
+        order.pendingCosts = {
+          ...values,
+          updatedAt: new Date().toISOString(),
+          explanation: explanation.trim(),
+          source: 'Ajuste manual',
+        };
+        order.pendingCostEstimate = pendingCostTotal(order.pendingCosts);
+        order.economicStatus = 'Pendiente de conciliación';
+        this.event(
+          state,
+          'Estimación pendiente ajustada',
+          `${order.number}: ${explanation.trim()}`,
+          'warning',
+        );
+      },
+      true,
+      'Ajuste de costos pendientes',
+      workOrderId,
+    );
+  }
+
+  closeEconomic(workOrderId: string): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        if (!order) throw new Error('OT no encontrada.');
+        if (!['Administrador', 'Gerente'].includes(state.role))
+          throw new Error('Solo Administración o Gerencia pueden cerrar económicamente una OT.');
+        if (!['Terminada', 'Entregada'].includes(order.status))
+          throw new Error('La OT debe estar terminada o entregada antes del cierre económico.');
+        const pending = order.pendingCosts
+          ? pendingCostTotal(order.pendingCosts)
+          : order.pendingCostEstimate;
+        if (pending > 0)
+          throw new Error(
+            `Quedan ${pending} de costos pendientes. Recalcula o concilia la estimación antes de cerrar.`,
+          );
+        order.economicStatus = 'Cerrada económicamente';
+        order.economicClosedAt = new Date().toISOString();
+        order.economicClosedBy = state.role;
+        this.event(
+          state,
+          'Cierre económico confirmado',
+          `${order.number} fue conciliada y cerrada por ${state.role}.`,
+          'success',
+        );
+      },
+      true,
+      'Cierre económico',
+      workOrderId,
     );
   }
 
