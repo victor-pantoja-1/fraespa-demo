@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { CommercialPage } from './pages/commercial.page';
 import { DashboardPage } from './pages/dashboard.page';
 import { InventoryPage } from './pages/inventory.page';
+import { PaintDemoPage } from './pages/paint-demo.page';
 import { ProfitabilityPage } from './pages/profitability.page';
 import { ProductionPage } from './pages/production.page';
 import { ReportsPage } from './pages/reports.page';
@@ -27,6 +28,7 @@ export const routes: Routes = [
   { path: 'bodega', component: WarehousePage },
   { path: 'inventario', component: InventoryPage },
   { path: 'produccion', component: ProductionPage },
+  { path: 'demo-flujo', component: PaintDemoPage },
   { path: 'rentabilidad', component: ProfitabilityPage, canActivate: [managementGuard] },
   { path: 'comercial', component: CommercialPage, canActivate: [commercialGuard] },
   { path: 'informes', component: ReportsPage, canActivate: [managementGuard] },

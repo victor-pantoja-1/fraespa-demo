@@ -15,6 +15,7 @@ import {
 } from '../domain/calculations';
 import {
   AuditEvent,
+  ColorProMapping,
   CommercialAgreement,
   DirectCostEntry,
   DemoState,
@@ -22,6 +23,8 @@ import {
   MaterialRequest,
   MaterialRequestLine,
   MaterialVoucher,
+  PaintMix,
+  PaintPreparation,
   Role,
   TimeEntry,
   VehicleIntake,
@@ -52,6 +55,33 @@ interface NewWorkOrderInput {
   dueDate: string;
   assignedWorkers: string[];
   template: 'Pintura' | 'Reparación' | 'Preparación';
+}
+interface PaintMixInput {
+  workOrderId: string;
+  ofReference: string;
+  stage: string;
+  colorCode: string;
+  preparation: PaintPreparation;
+  attachmentPath: string;
+  components: Array<{
+    colorProCode: string;
+    recommendedGrams: number;
+    actualGrams: number;
+    reusableGrams: number;
+    wasteGrams: number;
+  }>;
+  preparer: string;
+  batch: string;
+  observations: string;
+}
+interface LiquidReturnInput {
+  productId: string;
+  workOrderId: string;
+  voucherReference: string;
+  grossGrams: number;
+  tareGrams: number;
+  materialState: 'Reutilizable' | 'Mezcla identificada' | 'Contaminado' | 'Desperdicio';
+  receiver: string;
 }
 
 class FraespaDatabase extends Dexie {
@@ -90,13 +120,13 @@ export class DemoStore {
   private async hydrate(): Promise<void> {
     try {
       const stored = await this.database.states.get('main');
-      if (stored?.payload?.schemaVersion === 3) this.internalState.set(stored.payload);
+      if (stored?.payload?.schemaVersion === 4) this.internalState.set(stored.payload);
       else if (stored?.payload) this.internalState.set(createDemoState());
     } catch (error) {
       try {
         const fallback = localStorage.getItem('fraespa-demo-state');
         const parsed = fallback ? (JSON.parse(fallback) as DemoState) : null;
-        if (parsed?.schemaVersion === 3) this.internalState.set(parsed);
+        if (parsed?.schemaVersion === 4) this.internalState.set(parsed);
       } catch {
         this.storageError.set(
           `No fue posible recuperar el estado local: ${error instanceof Error ? error.message : 'error desconocido'}`,
@@ -939,6 +969,302 @@ export class DemoStore {
       'Transferencia entre OT',
       `${fromOrderId} → ${toOrderId}`,
     );
+  }
+
+  updateColorProMapping(
+    colorProCode: string,
+    productId: string,
+    gramsPerInventoryUnit: number,
+    status: ColorProMapping['status'],
+  ): void {
+    this.mutate(
+      (state) => {
+        const mapping = state.colorProMappings.find((item) => item.colorProCode === colorProCode);
+        const product = state.products.find((item) => item.id === productId);
+        if (!mapping || !product || !isValidQuantity(gramsPerInventoryUnit))
+          throw new Error('Selecciona un producto y una conversión válida.');
+        mapping.productId = product.id;
+        mapping.gramsPerInventoryUnit = gramsPerInventoryUnit;
+        mapping.status = status;
+        mapping.note =
+          status === 'Validada para demo'
+            ? 'Relación confirmada para esta validación. La integración productiva sigue pendiente.'
+            : 'Relación provisional; requiere validación de código y conversión antes de producción.';
+        this.event(
+          state,
+          'Mapeo ColorPro actualizado',
+          `${colorProCode} → ${product.code} · ${status}.`,
+          status === 'Validada para demo' ? 'success' : 'warning',
+        );
+      },
+      true,
+      'Mapeo ColorPro',
+      `${colorProCode} → ${productId}`,
+    );
+  }
+
+  confirmPaintMix(input: PaintMixInput): string {
+    let mixId = '';
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === input.workOrderId);
+        if (
+          !order ||
+          !input.ofReference.trim() ||
+          !input.stage.trim() ||
+          !input.colorCode.trim() ||
+          !input.preparer.trim() ||
+          !input.batch.trim() ||
+          !input.components.length
+        )
+          throw new Error('Completa OF, OT, proceso, color, preparador, lote y fórmula.');
+        if (
+          state.paintMixes.some(
+            (mix) =>
+              mix.workOrderId === order.id &&
+              mix.batch.toLowerCase() === input.batch.trim().toLowerCase(),
+          )
+        )
+          throw new Error('El lote de mezcla ya fue confirmado para esta OT.');
+
+        const prepared = input.components.map((component) => {
+          const mapping = state.colorProMappings.find(
+            (item) => item.colorProCode === component.colorProCode,
+          );
+          const product = state.products.find((item) => item.id === mapping?.productId);
+          if (!mapping || !product)
+            throw new Error(`Falta mapear ${component.colorProCode} con un producto Softland.`);
+          if (
+            !isValidQuantity(component.recommendedGrams) ||
+            !isValidQuantity(component.actualGrams) ||
+            component.reusableGrams < 0 ||
+            component.wasteGrams < 0
+          )
+            throw new Error(`Revisa las cantidades de ${component.colorProCode}.`);
+          const inventoryQuantity =
+            Math.round((component.actualGrams / mapping.gramsPerInventoryUnit) * 10000) / 10000;
+          const consumedBefore = state.paintMixes
+            .filter((mix) => mix.workOrderId === order.id)
+            .flatMap((mix) => mix.components)
+            .filter((item) => item.productId === product.id)
+            .reduce((sum, item) => sum + item.inventoryQuantity, 0);
+          const deliveredAvailable = Math.max(
+            0,
+            allocatedQuantity(order.id, product.id, state.movements) - consumedBefore,
+          );
+          const consumedFromDeliveredQuantity = Math.min(inventoryQuantity, deliveredAvailable);
+          const directIssueQuantity = Math.max(0, inventoryQuantity - deliveredAvailable);
+          return {
+            input: component,
+            mapping,
+            product,
+            inventoryQuantity,
+            consumedFromDeliveredQuantity,
+            directIssueQuantity,
+          };
+        });
+
+        const directByProduct = new Map<string, number>();
+        for (const item of prepared)
+          directByProduct.set(
+            item.product.id,
+            (directByProduct.get(item.product.id) ?? 0) + item.directIssueQuantity,
+          );
+        for (const [productId, quantity] of directByProduct) {
+          const product = state.products.find((item) => item.id === productId)!;
+          if (quantity > stockForProduct(product, state.movements))
+            throw new Error(`Stock insuficiente para completar la mezcla de ${product.code}.`);
+        }
+
+        const now = new Date().toISOString();
+        mixId = crypto.randomUUID();
+        const components = prepared.map((item) => {
+          if (item.directIssueQuantity > 0) {
+            state.movements.unshift({
+              id: crypto.randomUUID(),
+              createdAt: now,
+              type: 'Despacho',
+              productId: item.product.id,
+              quantity: item.directIssueQuantity,
+              stockDelta: -item.directIssueQuantity,
+              allocationDelta: item.directIssueQuantity,
+              unitCost: item.product.unitCost,
+              workOrderId: order.id,
+              reference: input.batch.trim(),
+              user: `${input.preparer.trim()} · Mezcla`,
+              note: 'Solo se descontó la fracción no entregada previamente a la estación.',
+            });
+          }
+          return {
+            colorProCode: item.input.colorProCode,
+            productId: item.product.id,
+            recommendedGrams: item.input.recommendedGrams,
+            actualGrams: item.input.actualGrams,
+            reusableGrams: item.input.reusableGrams,
+            wasteGrams: item.input.wasteGrams,
+            inventoryQuantity: item.inventoryQuantity,
+            unitCost: item.product.unitCost,
+            consumedFromDeliveredQuantity: item.consumedFromDeliveredQuantity,
+            directIssueQuantity: item.directIssueQuantity,
+          };
+        });
+        const inventoryCost = roundMoney(
+          components.reduce((sum, item) => sum + item.inventoryQuantity * item.unitCost, 0),
+        );
+        const pendingReconciliation = prepared.some(
+          (item) => item.mapping.status === 'Pendiente de validación',
+        );
+        const mix: PaintMix = {
+          id: mixId,
+          createdAt: now,
+          workOrderId: order.id,
+          ofReference: input.ofReference.trim(),
+          stage: input.stage.trim(),
+          colorCode: input.colorCode.trim(),
+          preparation: input.preparation,
+          targetLiters: 1,
+          attachmentPath: input.attachmentPath,
+          extractionMode: 'Simulación demostrativa',
+          components,
+          preparer: input.preparer.trim(),
+          batch: input.batch.trim(),
+          observations: input.observations.trim(),
+          inventoryCost,
+          pendingReconciliation,
+          status: 'Confirmada',
+        };
+        state.paintMixes.unshift(mix);
+        this.refreshAutomaticPending(state, order);
+        this.event(
+          state,
+          'Mezcla de pintura confirmada',
+          `${input.batch.trim()} · ${input.colorCode.trim()} · ${input.preparation}. ${components.reduce((sum, item) => sum + item.actualGrams, 0).toFixed(1)} g registrados sin duplicar entregas previas.`,
+          pendingReconciliation ? 'warning' : 'success',
+        );
+      },
+      true,
+      'Preparación de pintura',
+      `${input.colorCode} · ${input.batch}`,
+    );
+    return mixId;
+  }
+
+  registerLiquidReturnByWeight(input: LiquidReturnInput): string {
+    let returnId = '';
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === input.workOrderId);
+        const product = state.products.find((item) => item.id === input.productId);
+        const gross = Number(input.grossGrams);
+        const tare = Number(input.tareGrams);
+        const net = Math.round((gross - tare) * 10) / 10;
+        if (
+          !order ||
+          !product ||
+          !input.voucherReference ||
+          !input.receiver.trim() ||
+          !Number.isFinite(net) ||
+          net <= 0
+        )
+          throw new Error('Completa producto, vale, pesos válidos y responsable de recepción.');
+
+        let inventoryQuantity: number | null = null;
+        let densityApplied: number | undefined;
+        if (input.materialState === 'Reutilizable') {
+          if (product.unit === 'KG') inventoryQuantity = net / 1000;
+          else if (product.unit === 'LT') {
+            if (!product.densityGramsPerMl || product.densityStatus !== 'Validada')
+              throw new Error(
+                'No se puede convertir gramos a litros sin una densidad validada para el producto.',
+              );
+            densityApplied = product.densityGramsPerMl;
+            inventoryQuantity = net / (product.densityGramsPerMl * 1000);
+          } else {
+            const mapping = state.colorProMappings.find(
+              (item) => item.productId === product.id && item.status === 'Validada para demo',
+            );
+            if (!mapping)
+              throw new Error(
+                'La unidad de inventario no tiene una conversión por pesaje validada.',
+              );
+            inventoryQuantity = net / mapping.gramsPerInventoryUnit;
+          }
+          inventoryQuantity = Math.round(inventoryQuantity * 10000) / 10000;
+          const alreadyConsumed = state.paintMixes
+            .filter((mix) => mix.workOrderId === order.id)
+            .flatMap((mix) => mix.components)
+            .filter((item) => item.productId === product.id)
+            .reduce((sum, item) => sum + item.inventoryQuantity, 0);
+          const available = Math.max(
+            0,
+            allocatedQuantity(order.id, product.id, state.movements) - alreadyConsumed,
+          );
+          if (inventoryQuantity > available)
+            throw new Error(
+              `La devolución supera el saldo no consumido (${available.toFixed(4)} ${product.unit}).`,
+            );
+          const lots = allocationLots(order.id, product.id, state.movements).filter(
+            (lot) => !input.voucherReference || lot.movement.reference === input.voucherReference,
+          );
+          if (!lots.length)
+            throw new Error('No se encontró saldo del vale original para ese producto.');
+          let remaining = inventoryQuantity;
+          for (const lot of lots) {
+            if (remaining <= 0) break;
+            const used = Math.min(remaining, lot.remainingQuantity);
+            state.movements.unshift({
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              type: 'Devolución',
+              productId: product.id,
+              quantity: used,
+              stockDelta: used,
+              allocationDelta: -used,
+              unitCost: lot.movement.unitCost,
+              workOrderId: order.id,
+              reference: `DEV-PESO-${Date.now().toString().slice(-6)}`,
+              user: input.receiver.trim(),
+              note: `Peso neto ${net} g vinculado a ${input.voucherReference}.`,
+              sourceMovementId: lot.movement.id,
+              sourceVoucherId: lot.movement.sourceVoucherId,
+            });
+            remaining -= used;
+          }
+          this.refreshAutomaticPending(state, order);
+        }
+
+        returnId = crypto.randomUUID();
+        state.liquidReturns.unshift({
+          id: returnId,
+          createdAt: new Date().toISOString(),
+          productId: product.id,
+          workOrderId: order.id,
+          voucherReference: input.voucherReference,
+          grossGrams: gross,
+          tareGrams: tare,
+          netGrams: net,
+          inventoryUnit: product.unit,
+          inventoryQuantity,
+          materialState: input.materialState,
+          receiver: input.receiver.trim(),
+          densityApplied,
+          result:
+            input.materialState === 'Reutilizable' ? 'Reincorporado' : 'Separado sin reincorporar',
+        });
+        this.event(
+          state,
+          input.materialState === 'Reutilizable'
+            ? 'Devolución por peso reincorporada'
+            : 'Material separado sin reincorporar',
+          `${net} g de ${product.code} · ${input.materialState}.`,
+          input.materialState === 'Reutilizable' ? 'success' : 'warning',
+        );
+      },
+      true,
+      'Devolución por pesaje',
+      `${input.productId} · ${input.materialState}`,
+    );
+    return returnId;
   }
 
   recordHours(

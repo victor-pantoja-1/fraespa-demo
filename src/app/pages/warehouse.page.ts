@@ -181,16 +181,62 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   </option>
                 }
               </select></label
-            ><label
-              ><span class="field-label">Cantidad utilizable</span
-              ><input
-                class="field"
-                type="number"
-                min="0.1"
-                step="0.1"
-                [(ngModel)]="returnQty"
-                name="qty" /></label
-            ><button class="btn-primary w-full">Registrar devolución</button>
+            >
+            <div class="grid grid-cols-2 gap-3">
+              <label
+                ><span class="field-label">Peso bruto (g)</span
+                ><input
+                  class="field"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  [(ngModel)]="returnGross"
+                  name="gross"
+              /></label>
+              <label
+                ><span class="field-label">Tara recipiente (g)</span
+                ><input
+                  class="field"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  [(ngModel)]="returnTare"
+                  name="tare"
+              /></label>
+            </div>
+            <div class="rounded-xl bg-slate-50 p-3 text-sm">
+              <span class="text-slate-500">Peso neto calculado</span
+              ><strong class="ml-2">{{ returnNet() }} g</strong
+              ><span class="ml-2 text-xs text-slate-500"
+                >· unidad inventario {{ product(returnProduct)?.unit }}</span
+              >
+            </div>
+            <label
+              ><span class="field-label">Estado del material</span
+              ><select class="field" [(ngModel)]="returnState" name="state">
+                <option>Reutilizable</option>
+                <option>Mezcla identificada</option>
+                <option>Contaminado</option>
+                <option>Desperdicio</option>
+              </select></label
+            >
+            <label
+              ><span class="field-label">Responsable de recepción</span
+              ><input class="field" [(ngModel)]="returnReceiver" name="receiver"
+            /></label>
+            @if (
+              product(returnProduct)?.unit === 'LT' &&
+              product(returnProduct)?.densityStatus !== 'Validada'
+            ) {
+              <p
+                class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"
+              >
+                La conversión de gramos a litros quedará bloqueada para material reutilizable hasta
+                registrar una densidad validada. Una mezcla o material contaminado se separa y no
+                vuelve al stock original.
+              </p>
+            }
+            <button class="btn-primary w-full">Registrar devolución por pesaje</button>
           </form>
         }
         @if (canOperate() && operation() === 'transfer') {
@@ -497,9 +543,13 @@ export class WarehousePage {
   deliveryJustification = '';
   scanCode = '';
   returnOrder = 'ot-125';
-  returnVoucher = 'V-00091';
-  returnProduct = 'DIS0011';
-  returnQty = 1;
+  returnVoucher = 'V-00102';
+  returnProduct = 'PQM0126';
+  returnGross = 620;
+  returnTare = 120;
+  returnState: 'Reutilizable' | 'Mezcla identificada' | 'Contaminado' | 'Desperdicio' =
+    'Reutilizable';
+  returnReceiver = 'Antonella';
   transferFrom = 'ot-125';
   transferTo = 'ot-128';
   transferProduct = 'DIS0011';
@@ -543,7 +593,10 @@ export class WarehousePage {
       ).length;
   }
   returnsCount() {
-    return this.store.state().movements.filter((movement) => movement.type === 'Devolución').length;
+    return Math.max(
+      this.store.state().liquidReturns.length,
+      this.store.state().movements.filter((movement) => movement.type === 'Devolución').length,
+    );
   }
   selectRequest(request: MaterialRequest) {
     this.deliveryAmounts = Object.fromEntries(
@@ -603,16 +656,26 @@ export class WarehousePage {
   registerReturn() {
     try {
       if (!this.canOperate()) throw new Error('El rol actual no puede registrar devoluciones.');
-      this.store.returnMaterial(
-        this.returnOrder,
-        this.returnProduct,
-        Number(this.returnQty),
-        this.returnVoucher,
+      this.store.registerLiquidReturnByWeight({
+        workOrderId: this.returnOrder,
+        productId: this.returnProduct,
+        voucherReference: this.returnVoucher,
+        grossGrams: Number(this.returnGross),
+        tareGrams: Number(this.returnTare),
+        materialState: this.returnState,
+        receiver: this.returnReceiver,
+      });
+      this.show(
+        this.returnState === 'Reutilizable'
+          ? 'Devolución por peso reincorporada al costo histórico del vale.'
+          : 'Material separado y trazado sin reincorporarlo como componente original.',
       );
-      this.show('Devolución registrada al costo histórico del vale.');
     } catch (error) {
       this.show(this.message(error));
     }
+  }
+  returnNet() {
+    return Math.max(0, Number(this.returnGross) - Number(this.returnTare));
   }
   registerTransfer() {
     try {

@@ -55,6 +55,10 @@ npm test -- --watch=false
 - Centro de sincronización demostrativo, modo offline, cola local y restauración del seed.
 - Recorrido guiado de 12 escenas con línea base verificable, reconocimiento de operaciones nuevas y reinicio completo.
 - Diseño responsive con navegación móvil y operaciones rápidas.
+- Ruta `demo-flujo` para validar en una misma sesión la vista móvil de Jhony, la bandeja de Antonella y el registro de mezclas de pintura.
+- Dos fórmulas preconfiguradas de ColorPro para `Red - 408A5` (concentrada y diluida), tratadas como alternativas excluyentes para un objetivo de 1 litro.
+- Mapeo configurable entre códigos ColorPro y productos Softland, con peso recomendado, peso real, sobrantes, pérdidas y costo calculado desde inventario.
+- Devolución de líquidos por peso bruto, tara y peso neto, con bloqueo de conversiones de gramos a litros cuando no existe una densidad validada.
 
 ## Datos de referencia
 
@@ -91,6 +95,10 @@ Esto reemplaza únicamente el estado local de la demo. Los Excel originales no s
 - Fotografías, documentos y firma digital productiva requieren almacenamiento y backend.
 - Las funciones complementarias de compras, herramientas, pinturas y calidad se muestran a nivel demostrativo, sin integración contable.
 - No se incluye importación automática de Excel; los datos usados fueron curados para evitar relaciones históricas no verificadas.
+- La lectura de las capturas de ColorPro es una simulación con fórmulas preconfiguradas. No existe OCR ni conexión directa con ColorPro.
+- El valor de venta mostrado en ColorPro no se usa como costo. Los costos de mezcla provienen de los productos de inventario mapeados.
+- El mapeo `THINNER W` es provisional y queda marcado para validación; la demo no afirma que el código de ColorPro coincida con un producto Softland.
+- El archivo `STOCK DE BODEGA AL 06-11-2026.xlsx` contiene un encabezado interno con fecha 30/11/2026. La demo muestra esta discrepancia y no presenta el stock como conciliado físicamente.
 
 ## Evolución hacia producción
 
@@ -118,9 +126,9 @@ Esto reemplaza únicamente el estado local de la demo. Los Excel originales no s
 
 ## Resultado de la auditoría final
 
-Ejecución del 4 de noviembre de 2026:
+Ejecución del 6 de noviembre de 2026:
 
-- `npm test -- --watch=false`: **22 pruebas aprobadas**.
+- `npm test -- --watch=false`: **26 pruebas aprobadas**.
 - `npm run build`: **compilación de producción aprobada**.
-- No se añadió una suite E2E porque el repositorio no incluye un runner de navegador. El flujo central está cubierto por pruebas integradas del estado y las reglas de negocio.
-- La revisión interactiva de escritorio, móvil y el diálogo real de impresión no pudo completarse en el entorno automatizado por una restricción del controlador de navegador local. La compilación responsive y la hoja `@media print` A4 sí forman parte del build; antes de la presentación debe realizarse una comprobación manual final en el navegador y la impresora/PDF objetivo.
+- No se añadió una suite E2E porque el repositorio no incluye un runner de navegador. El flujo central, la antiduplicación de la mezcla y las devoluciones por peso están cubiertos por pruebas integradas del estado y las reglas de negocio.
+- La revisión interactiva de escritorio, móvil y el diálogo real de impresión no pudo completarse en el entorno automatizado porque el controlador no pudo vincular con seguridad la URL del navegador local. La compilación responsive y la hoja `@media print` A4 sí forman parte del build; antes de la presentación debe realizarse una comprobación manual final en el navegador y la impresora/PDF objetivo.

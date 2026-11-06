@@ -31,6 +31,69 @@ export interface Product {
   costBasis: string;
   location: string;
   source: 'Excel verificado' | 'Demostración';
+  densityGramsPerMl?: number;
+  densityStatus?: 'Validada' | 'Pendiente de validación';
+}
+
+export type PaintPreparation = 'Concentrada' | 'Diluida';
+export type MappingStatus = 'Validada para demo' | 'Pendiente de validación';
+
+export interface ColorProMapping {
+  colorProCode: string;
+  productId: string;
+  gramsPerInventoryUnit: number;
+  status: MappingStatus;
+  note: string;
+}
+
+export interface PaintMixComponent {
+  colorProCode: string;
+  productId: string;
+  recommendedGrams: number;
+  actualGrams: number;
+  reusableGrams: number;
+  wasteGrams: number;
+  inventoryQuantity: number;
+  unitCost: number;
+  consumedFromDeliveredQuantity: number;
+  directIssueQuantity: number;
+}
+
+export interface PaintMix {
+  id: string;
+  createdAt: string;
+  workOrderId: string;
+  ofReference: string;
+  stage: string;
+  colorCode: string;
+  preparation: PaintPreparation;
+  targetLiters: number;
+  attachmentPath: string;
+  extractionMode: 'Simulación demostrativa';
+  components: PaintMixComponent[];
+  preparer: string;
+  batch: string;
+  observations: string;
+  inventoryCost: number;
+  pendingReconciliation: boolean;
+  status: 'Confirmada';
+}
+
+export interface LiquidReturnRecord {
+  id: string;
+  createdAt: string;
+  productId: string;
+  workOrderId: string;
+  voucherReference: string;
+  grossGrams: number;
+  tareGrams: number;
+  netGrams: number;
+  inventoryUnit: string;
+  inventoryQuantity: number | null;
+  materialState: 'Reutilizable' | 'Mezcla identificada' | 'Contaminado' | 'Desperdicio';
+  receiver: string;
+  densityApplied?: number;
+  result: 'Reincorporado' | 'Separado sin reincorporar';
 }
 
 export interface MaterialPlanLine {
@@ -277,6 +340,9 @@ export interface DemoState {
   pendingOperations: SyncOperation[];
   lastSync: string;
   role: Role;
+  colorProMappings: ColorProMapping[];
+  paintMixes: PaintMix[];
+  liquidReturns: LiquidReturnRecord[];
 }
 
 export interface Profitability {

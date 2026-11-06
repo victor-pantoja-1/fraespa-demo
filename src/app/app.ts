@@ -54,6 +54,7 @@ export class App {
     { label: 'Bodega y vales', icon: 'Warehouse', route: '/bodega' },
     { label: 'Inventario', icon: 'PackageSearch', route: '/inventario' },
     { label: 'Producción', icon: 'ChartGantt', route: '/produccion' },
+    { label: 'Demo pinturas', icon: 'PaintBucket', route: '/demo-flujo' },
     { label: 'Rentabilidad', icon: 'BadgeDollarSign', route: '/rentabilidad' },
   ];
   readonly secondaryNav: NavItem[] = [

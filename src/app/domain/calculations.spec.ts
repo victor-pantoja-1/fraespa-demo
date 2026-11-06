@@ -252,7 +252,7 @@ describe('reglas críticas FRAESPA', () => {
   it('R y S: el estado completo se serializa y restaura para repetir la demo', () => {
     const state = createDemoState();
     const restored = JSON.parse(JSON.stringify(state));
-    expect(restored.schemaVersion).toBe(3);
+    expect(restored.schemaVersion).toBe(4);
     expect(restored.requests[0].lines.length).toBeGreaterThan(1);
     expect(restored.pendingOperations).toEqual([]);
   });
@@ -407,5 +407,133 @@ describe('flujos integrados de la demo', () => {
     expect(store.state().role).toBe('Trabajador');
     store.setRole('Gerente');
     expect(store.state().role).toBe('Gerente');
+  });
+
+  it('T: confirmar una fórmula consume el vale de estación sin descontar el stock dos veces', async () => {
+    const store = await readyStore();
+    const productIds = ['PQM0126', 'PQM0167', 'PQM0125'];
+    const before = Object.fromEntries(productIds.map((id) => [id, store.stock(id)]));
+    store.confirmPaintMix({
+      workOrderId: 'ot-125',
+      ofReference: 'OF-408A5-DEMO',
+      stage: 'Pintura',
+      colorCode: 'Red - 408A5',
+      preparation: 'Concentrada',
+      attachmentPath: '/assets/colorpro/red-408a5-concentrada.png',
+      components: [
+        {
+          colorProCode: '2246',
+          recommendedGrams: 495.9,
+          actualGrams: 495.9,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+        {
+          colorProCode: '3200',
+          recommendedGrams: 67,
+          actualGrams: 67,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+        {
+          colorProCode: '2236',
+          recommendedGrams: 409.2,
+          actualGrams: 409.2,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+      ],
+      preparer: 'Antonella',
+      batch: 'TEST-MIX-001',
+      observations: 'Prueba automatizada',
+    });
+    expect(store.state().paintMixes[0].components).toHaveLength(3);
+    expect(
+      store.state().paintMixes[0].components.every((item) => item.directIssueQuantity === 0),
+    ).toBe(true);
+    expect(Object.fromEntries(productIds.map((id) => [id, store.stock(id)]))).toEqual(before);
+  });
+
+  it('U: las fórmulas concentrada y diluida quedan como alternativas de un solo lote', async () => {
+    const store = await readyStore();
+    const input = {
+      workOrderId: 'ot-125',
+      ofReference: 'OF-408A5-DEMO',
+      stage: 'Pintura',
+      colorCode: 'Red - 408A5',
+      preparation: 'Diluida' as const,
+      attachmentPath: '/assets/colorpro/red-408a5-diluida.png',
+      components: [
+        {
+          colorProCode: '2246',
+          recommendedGrams: 318.2,
+          actualGrams: 318.2,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+        {
+          colorProCode: '3200',
+          recommendedGrams: 43,
+          actualGrams: 43,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+        {
+          colorProCode: '2236',
+          recommendedGrams: 262.6,
+          actualGrams: 262.6,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+        {
+          colorProCode: 'THINNER W',
+          recommendedGrams: 311.8,
+          actualGrams: 311.8,
+          reusableGrams: 0,
+          wasteGrams: 0,
+        },
+      ],
+      preparer: 'Antonella',
+      batch: 'TEST-MIX-002',
+      observations: 'Prueba automatizada',
+    };
+    store.confirmPaintMix(input);
+    expect(store.state().paintMixes).toHaveLength(1);
+    expect(store.state().paintMixes[0].preparation).toBe('Diluida');
+    expect(store.state().paintMixes[0].pendingReconciliation).toBe(true);
+    expect(() => store.confirmPaintMix({ ...input, preparation: 'Concentrada' })).toThrow(
+      /lote de mezcla ya fue confirmado/i,
+    );
+  });
+
+  it('V: una devolución contaminada por peso no reincorpora el componente original', async () => {
+    const store = await readyStore();
+    const before = store.stock('PQM0126');
+    store.registerLiquidReturnByWeight({
+      workOrderId: 'ot-125',
+      productId: 'PQM0126',
+      voucherReference: 'V-00102',
+      grossGrams: 420,
+      tareGrams: 120,
+      materialState: 'Contaminado',
+      receiver: 'Antonella',
+    });
+    expect(store.stock('PQM0126')).toBe(before);
+    expect(store.state().liquidReturns[0].result).toBe('Separado sin reincorporar');
+  });
+
+  it('W: no convierte gramos a litros cuando falta densidad validada', async () => {
+    const store = await readyStore();
+    expect(() =>
+      store.registerLiquidReturnByWeight({
+        workOrderId: 'ot-125',
+        productId: 'PQM0034',
+        voucherReference: 'V-00102',
+        grossGrams: 300,
+        tareGrams: 100,
+        materialState: 'Reutilizable',
+        receiver: 'Antonella',
+      }),
+    ).toThrow(/densidad validada/i);
   });
 });
