@@ -69,6 +69,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
         <div class="divide-y divide-slate-100">
           @for (request of store.pendingRequests(); track request.id) {
             @let order = workOrder(request.workOrderId);
+            @let file = workFile(order?.workFileId);
             <div class="p-5">
               <div class="flex flex-col justify-between gap-4 lg:flex-row">
                 <div>
@@ -77,11 +78,17 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                     ><span
                       class="badge"
                       [class.badge-warning]="request.status === 'Parcial'"
+                      [class.badge-danger]="request.status === 'En revisión'"
                       [class.badge-info]="request.status === 'Pendiente'"
                       >{{ request.status }}</span
                     >
                   </div>
                   <div class="mt-2 text-xs text-slate-500">
+                    {{ order?.client }} · patente {{ order?.licensePlate || order?.vehicle }} ·
+                    {{ file?.ofReference || 'OF sin expediente' }} ·
+                    {{ request.createdAt | date: 'HH:mm' }}
+                  </div>
+                  <div class="mt-1 text-xs text-slate-500">
                     Solicita {{ request.requester }} · recibe {{ request.receiver }} ·
                     {{ request.stage }}
                   </div>
@@ -94,18 +101,20 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                         <strong>{{ item?.code }}</strong
                         ><span>{{ item?.description }}</span
                         ><span class="text-slate-500"
-                          >Solicitado {{ line.requestedQuantity }} · entregado
-                          {{ line.deliveredQuantity }} · pendiente {{ pending }}
-                          {{ item?.unit }}</span
+                          >Solicitado {{ line.requestedQuantity }} · autorizado
+                          {{ line.authorizedQuantity }} · entregado {{ line.deliveredQuantity }} ·
+                          pendiente {{ pending }} {{ item?.unit }}</span
                         >
                       </div>
                     }
                   </div>
                 </div>
-                @if (canOperate()) {
+                @if (canOperate() && request.status !== 'En revisión') {
                   <button class="btn-primary self-start" (click)="selectRequest(request)">
                     <span appLucide="PackageCheck" [iconSize]="17"></span>Revisar entrega
                   </button>
+                } @else if (request.status === 'En revisión') {
+                  <span class="badge-danger self-start">Esperando supervisión</span>
                 }
               </div>
               @if (request.excessJustification) {
@@ -113,6 +122,12 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
                 >
                   <strong>Justificación:</strong> {{ request.excessJustification }}
+                </div>
+              }
+              @if (request.approval.supervisor) {
+                <div class="mt-2 text-xs text-slate-500">
+                  {{ request.approval.status }} por {{ request.approval.supervisor }} ·
+                  {{ request.approval.reason }}
                 </div>
               }
             </div>
@@ -348,7 +363,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
           <div class="mt-5 space-y-3">
             @for (line of request.lines; track line.id) {
               @let item = product(line.productId);
-              @let pending = line.requestedQuantity - line.deliveredQuantity - line.closedQuantity;
+              @let pending = line.authorizedQuantity - line.deliveredQuantity;
               <div class="grid gap-3 rounded-xl border p-3 sm:grid-cols-[1fr_150px]">
                 <div>
                   <strong>{{ item?.code }} · {{ item?.description }}</strong>
@@ -560,6 +575,9 @@ export class WarehousePage {
   }
   workOrder(id: string) {
     return this.store.order(id);
+  }
+  workFile(id?: string) {
+    return this.store.state().workFiles.find((file) => file.id === id);
   }
   stock(id: string) {
     return this.store.stock(id);

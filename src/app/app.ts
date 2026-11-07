@@ -50,11 +50,14 @@ export class App {
   ];
   readonly mainNav: NavItem[] = [
     { label: 'Dashboard', icon: 'LayoutDashboard', route: '/dashboard' },
+    { label: 'Expedientes', icon: 'FolderKanban', route: '/expedientes' },
     { label: 'Órdenes de trabajo', icon: 'ClipboardList', route: '/ordenes' },
     { label: 'Bodega y vales', icon: 'Warehouse', route: '/bodega' },
     { label: 'Inventario', icon: 'PackageSearch', route: '/inventario' },
     { label: 'Producción', icon: 'ChartGantt', route: '/produccion' },
-    { label: 'Demo pinturas', icon: 'PaintBucket', route: '/demo-flujo' },
+    { label: 'Demo integral', icon: 'PlayCircle', route: '/demo-flujo' },
+    { label: 'Móvil trabajador', icon: 'Smartphone', route: '/movil' },
+    { label: 'Demo pinturas', icon: 'PaintBucket', route: '/demo-pinturas' },
     { label: 'Rentabilidad', icon: 'BadgeDollarSign', route: '/rentabilidad' },
   ];
   readonly secondaryNav: NavItem[] = [
@@ -80,11 +83,14 @@ export class App {
   readonly searchResults = computed(() => {
     const query = this.search().trim().toLowerCase();
     if (query.length < 2) return [];
-    const orders = this.store
-      .state()
-      .workOrders.filter((item) =>
-        `${item.number} ${item.vehicle} ${item.client}`.toLowerCase().includes(query),
-      )
+    const state = this.store.state();
+    const orders = state.workOrders
+      .filter((item) => {
+        const file = state.workFiles.find((candidate) => candidate.id === item.workFileId);
+        return `${item.number} ${item.vehicle} ${item.licensePlate ?? ''} ${item.client} ${file?.ofReference ?? ''}`
+          .toLowerCase()
+          .includes(query);
+      })
       .slice(0, 5)
       .map((item) => ({
         label: `${item.number} · ${item.vehicle}`,
@@ -193,15 +199,8 @@ export class App {
   }
   startGuide(): void {
     this.store.setRole('Administrador');
-    const state = this.store.state();
-    this.guideBaseline.set({
-      voucherIds: new Set(state.vouchers.map((item) => item.id)),
-      movementIds: new Set(state.movements.map((item) => item.id)),
-      timeEntryIds: new Set(state.timeEntries.map((item) => item.id)),
-      auditIds: new Set(state.audit.map((item) => item.id)),
-    });
-    this.guideStep.set(0);
-    void this.router.navigateByUrl(this.guide[0].route);
+    this.guideStep.set(-1);
+    void this.router.navigateByUrl('/demo-flujo');
   }
   restartGuide(): void {
     this.store.restoreDemo();

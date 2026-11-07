@@ -36,7 +36,7 @@ const product = (
 });
 
 export const DEMO_PRODUCTS: Product[] = [
-  product('DIS0011', 'LIJAS ORBITAL P-120 NORGRIP', 'Lijas', 67, 750, 'UN', '1066261131586'),
+  product('DIS0011', 'LIJAS ORBITAL P-120 NORGRIP', 'Lijas', 172, 750, 'UN', '1066261131586'),
   product('DIS0014', 'DISCO NORGRIP P240 X100 UND', 'Lijas', 14, 1000, 'UN', '7891345111116'),
   product('DIS0018', 'LIJA DISC NORTON P-400', 'Lijas', 320, 496.93, 'UN', '1066261123444'),
   product('DIS0008', 'LIJA DISCO NORTON P-80', 'Lijas', 313, 603.88, 'UN', '1066261131609'),
@@ -289,6 +289,7 @@ const stage = (
   actualHours: number,
   plannedStart = '',
   plannedEnd = '',
+  assignedWorkers: string[] = [owner],
 ): WorkStage => ({
   id,
   name,
@@ -298,14 +299,16 @@ const stage = (
   actualHours,
   plannedStart,
   plannedEnd,
+  assignedWorkers,
   status: progress >= 100 ? 'Completada' : progress > 0 ? 'En curso' : 'Pendiente',
 });
 
-const plan = (...lines: Array<[string, number]>): MaterialPlanLine[] =>
-  lines.map(([productId, estimatedQty]) => ({
+const plan = (...lines: Array<[string, number, string?]>): MaterialPlanLine[] =>
+  lines.map(([productId, estimatedQty, stageId]) => ({
     productId,
     estimatedQty,
     originalEstimatedQty: estimatedQty,
+    stageId,
   }));
 
 export const DEMO_WORK_ORDERS: WorkOrder[] = [
@@ -349,17 +352,23 @@ export const DEMO_WORK_ORDERS: WorkOrder[] = [
       stage('s1', 'Desarme y diagnóstico', 'Supervisor', 100, 14, 13, '2026-10-21', '2026-10-23'),
       stage('s2', 'Carrocería', 'Miguel', 80, 30, 26, '2026-10-23', '2026-10-30'),
       stage('s3', 'Preparación y lijado', 'Jhony', 62, 38, 24, '2026-10-28', '2026-11-05'),
-      stage('s4', 'Pintura', 'Carlos', 25, 28, 8, '2026-11-04', '2026-11-09'),
+      stage('s4', 'Pintura', 'Carlos y Jhony', 25, 28, 8, '2026-11-04', '2026-11-09', [
+        'Carlos',
+        'Jhony',
+      ]),
       stage('s5', 'Barniz y terminaciones', 'Miguel', 0, 22, 0, '2026-11-09', '2026-11-12'),
       stage('s6', 'Control de calidad', 'Supervisor', 0, 8, 0, '2026-11-12', '2026-11-14'),
     ],
     materialPlan: plan(
-      ['DIS0011', 10],
-      ['CIN0010', 8],
-      ['PQM0062', 5],
-      ['PNT0102', 12],
-      ['BAR-450HS', 8],
-      ['PQM0034', 10],
+      ['DIS0011', 10, 's3'],
+      ['CIN0010', 8, 's3'],
+      ['PQM0062', 5, 's3'],
+      ['PNT0102', 12, 's4'],
+      ['PQM0126', 0.6, 's4'],
+      ['PQM0167', 0.1, 's4'],
+      ['PQM0125', 0.5, 's4'],
+      ['PQM0034', 0.4, 's4'],
+      ['BAR-450HS', 8, 's5'],
     ),
     assignedWorkers: ['Jhony', 'Carlos', 'Miguel', 'Supervisor'],
     financialDataSimulated: true,
@@ -770,7 +779,7 @@ export const DEMO_MOVEMENTS: InventoryMovement[] = [
     'm1',
     '2026-10-24T10:12:00',
     'Despacho',
-    'DIS0011',
+    'DIS0014',
     8,
     -8,
     8,
@@ -976,7 +985,8 @@ export const DEMO_MOVEMENTS: InventoryMovement[] = [
 
 export function createDemoState(): DemoState {
   const state: DemoState = {
-    schemaVersion: 4,
+    schemaVersion: 6,
+    workFiles: [],
     products: structuredClone(DEMO_PRODUCTS),
     workOrders: structuredClone(DEMO_WORK_ORDERS),
     movements: structuredClone(DEMO_MOVEMENTS),
@@ -1042,7 +1052,7 @@ export function createDemoState(): DemoState {
         lines: [
           {
             requestLineId: 'legacy-m1',
-            productId: 'DIS0011',
+            productId: 'DIS0014',
             requestedQuantity: 8,
             quantity: 8,
             unitCost: 750,
@@ -1242,22 +1252,32 @@ export function createDemoState(): DemoState {
         lines: [
           {
             id: 'r1-l1',
-            productId: 'DIS0011',
+            productId: 'DIS0014',
             requestedQuantity: 5,
+            authorizedQuantity: 5,
             deliveredQuantity: 0,
-            closedQuantity: 0,
+            closedQuantity: 5,
           },
           {
             id: 'r1-l2',
             productId: 'CIN0010',
             requestedQuantity: 2,
+            authorizedQuantity: 2,
             deliveredQuantity: 0,
-            closedQuantity: 0,
+            closedQuantity: 2,
           },
         ],
-        status: 'Pendiente',
+        status: 'Cerrada',
         note: 'Se requiere completar sector posterior.',
         excessJustification: 'Trabajo adicional detectado durante preparación.',
+        approval: {
+          required: true,
+          status: 'Aprobada',
+          requestedAt: '2026-11-03T09:40:00',
+          decidedAt: '2026-11-03T09:55:00',
+          supervisor: 'María · Supervisión',
+          reason: 'Trabajo adicional verificado en sector posterior.',
+        },
       },
       {
         id: 'r2',
@@ -1271,13 +1291,19 @@ export function createDemoState(): DemoState {
             id: 'r2-l1',
             productId: 'PNT0103',
             requestedQuantity: 2,
+            authorizedQuantity: 0,
             deliveredQuantity: 0,
             closedQuantity: 0,
           },
         ],
-        status: 'Pendiente',
+        status: 'En revisión',
         note: 'Retoque lateral derecho.',
         excessJustification: 'Retoque aprobado por supervisión.',
+        approval: {
+          required: true,
+          status: 'Pendiente',
+          requestedAt: '2026-11-03T10:05:00',
+        },
       },
     ],
     employees: [
@@ -1485,22 +1511,22 @@ export function createDemoState(): DemoState {
         colorProCode: '2246',
         productId: 'PQM0126',
         gramsPerInventoryUnit: 1000,
-        status: 'Validada para demo',
-        note: 'Descripción coincidente en el reporte Softland; equivalencia de unidad configurable.',
+        status: 'Pendiente de validación',
+        note: 'Código coincidente; conversión de gramos por unidad aún provisional.',
       },
       {
         colorProCode: '3200',
         productId: 'PQM0167',
         gramsPerInventoryUnit: 1000,
-        status: 'Validada para demo',
-        note: 'Descripción coincidente en el reporte Softland; equivalencia de unidad configurable.',
+        status: 'Pendiente de validación',
+        note: 'Código coincidente; conversión de gramos por unidad aún provisional.',
       },
       {
         colorProCode: '2236',
         productId: 'PQM0125',
         gramsPerInventoryUnit: 1000,
-        status: 'Validada para demo',
-        note: 'Descripción coincidente en el reporte Softland; equivalencia de unidad configurable.',
+        status: 'Pendiente de validación',
+        note: 'Código coincidente; conversión de gramos por unidad aún provisional.',
       },
       {
         colorProCode: 'THINNER W',
@@ -1512,6 +1538,8 @@ export function createDemoState(): DemoState {
     ],
     paintMixes: [],
     liquidReturns: [],
+    workerSession: null,
+    processEvents: [],
   };
   for (const order of state.workOrders) {
     if (!order.financialDataSimulated) continue;
