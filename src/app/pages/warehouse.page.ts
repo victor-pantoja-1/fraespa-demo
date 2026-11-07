@@ -69,6 +69,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
         <div class="divide-y divide-slate-100">
           @for (request of store.pendingRequests(); track request.id) {
             @let order = workOrder(request.workOrderId);
+            @let file = workFile(order?.workFileId);
             <div class="p-5">
               <div class="flex flex-col justify-between gap-4 lg:flex-row">
                 <div>
@@ -77,11 +78,17 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                     ><span
                       class="badge"
                       [class.badge-warning]="request.status === 'Parcial'"
+                      [class.badge-danger]="request.status === 'En revisión'"
                       [class.badge-info]="request.status === 'Pendiente'"
                       >{{ request.status }}</span
                     >
                   </div>
                   <div class="mt-2 text-xs text-slate-500">
+                    {{ order?.client }} · patente {{ order?.licensePlate || order?.vehicle }} ·
+                    {{ file?.ofReference || 'OF sin expediente' }} ·
+                    {{ request.createdAt | date: 'HH:mm' }}
+                  </div>
+                  <div class="mt-1 text-xs text-slate-500">
                     Solicita {{ request.requester }} · recibe {{ request.receiver }} ·
                     {{ request.stage }}
                   </div>
@@ -94,18 +101,20 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                         <strong>{{ item?.code }}</strong
                         ><span>{{ item?.description }}</span
                         ><span class="text-slate-500"
-                          >Solicitado {{ line.requestedQuantity }} · entregado
-                          {{ line.deliveredQuantity }} · pendiente {{ pending }}
-                          {{ item?.unit }}</span
+                          >Solicitado {{ line.requestedQuantity }} · autorizado
+                          {{ line.authorizedQuantity }} · entregado {{ line.deliveredQuantity }} ·
+                          pendiente {{ pending }} {{ item?.unit }}</span
                         >
                       </div>
                     }
                   </div>
                 </div>
-                @if (canOperate()) {
+                @if (canOperate() && request.status !== 'En revisión') {
                   <button class="btn-primary self-start" (click)="selectRequest(request)">
                     <span appLucide="PackageCheck" [iconSize]="17"></span>Revisar entrega
                   </button>
+                } @else if (request.status === 'En revisión') {
+                  <span class="badge-danger self-start">Esperando supervisión</span>
                 }
               </div>
               @if (request.excessJustification) {
@@ -113,6 +122,12 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
                 >
                   <strong>Justificación:</strong> {{ request.excessJustification }}
+                </div>
+              }
+              @if (request.approval.supervisor) {
+                <div class="mt-2 text-xs text-slate-500">
+                  {{ request.approval.status }} por {{ request.approval.supervisor }} ·
+                  {{ request.approval.reason }}
                 </div>
               }
             </div>
@@ -181,16 +196,62 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
                   </option>
                 }
               </select></label
-            ><label
-              ><span class="field-label">Cantidad utilizable</span
-              ><input
-                class="field"
-                type="number"
-                min="0.1"
-                step="0.1"
-                [(ngModel)]="returnQty"
-                name="qty" /></label
-            ><button class="btn-primary w-full">Registrar devolución</button>
+            >
+            <div class="grid grid-cols-2 gap-3">
+              <label
+                ><span class="field-label">Peso bruto (g)</span
+                ><input
+                  class="field"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  [(ngModel)]="returnGross"
+                  name="gross"
+              /></label>
+              <label
+                ><span class="field-label">Tara recipiente (g)</span
+                ><input
+                  class="field"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  [(ngModel)]="returnTare"
+                  name="tare"
+              /></label>
+            </div>
+            <div class="rounded-xl bg-slate-50 p-3 text-sm">
+              <span class="text-slate-500">Peso neto calculado</span
+              ><strong class="ml-2">{{ returnNet() }} g</strong
+              ><span class="ml-2 text-xs text-slate-500"
+                >· unidad inventario {{ product(returnProduct)?.unit }}</span
+              >
+            </div>
+            <label
+              ><span class="field-label">Estado del material</span
+              ><select class="field" [(ngModel)]="returnState" name="state">
+                <option>Reutilizable</option>
+                <option>Mezcla identificada</option>
+                <option>Contaminado</option>
+                <option>Desperdicio</option>
+              </select></label
+            >
+            <label
+              ><span class="field-label">Responsable de recepción</span
+              ><input class="field" [(ngModel)]="returnReceiver" name="receiver"
+            /></label>
+            @if (
+              product(returnProduct)?.unit === 'LT' &&
+              product(returnProduct)?.densityStatus !== 'Validada'
+            ) {
+              <p
+                class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"
+              >
+                La conversión de gramos a litros quedará bloqueada para material reutilizable hasta
+                registrar una densidad validada. Una mezcla o material contaminado se separa y no
+                vuelve al stock original.
+              </p>
+            }
+            <button class="btn-primary w-full">Registrar devolución por pesaje</button>
           </form>
         }
         @if (canOperate() && operation() === 'transfer') {
@@ -302,7 +363,7 @@ import { LucideIconDirective } from '../shared/lucide-icon.directive';
           <div class="mt-5 space-y-3">
             @for (line of request.lines; track line.id) {
               @let item = product(line.productId);
-              @let pending = line.requestedQuantity - line.deliveredQuantity - line.closedQuantity;
+              @let pending = line.authorizedQuantity - line.deliveredQuantity;
               <div class="grid gap-3 rounded-xl border p-3 sm:grid-cols-[1fr_150px]">
                 <div>
                   <strong>{{ item?.code }} · {{ item?.description }}</strong>
@@ -497,9 +558,13 @@ export class WarehousePage {
   deliveryJustification = '';
   scanCode = '';
   returnOrder = 'ot-125';
-  returnVoucher = 'V-00091';
-  returnProduct = 'DIS0011';
-  returnQty = 1;
+  returnVoucher = 'V-00102';
+  returnProduct = 'PQM0126';
+  returnGross = 620;
+  returnTare = 120;
+  returnState: 'Reutilizable' | 'Mezcla identificada' | 'Contaminado' | 'Desperdicio' =
+    'Reutilizable';
+  returnReceiver = 'Antonella';
   transferFrom = 'ot-125';
   transferTo = 'ot-128';
   transferProduct = 'DIS0011';
@@ -510,6 +575,9 @@ export class WarehousePage {
   }
   workOrder(id: string) {
     return this.store.order(id);
+  }
+  workFile(id?: string) {
+    return this.store.state().workFiles.find((file) => file.id === id);
   }
   stock(id: string) {
     return this.store.stock(id);
@@ -543,7 +611,10 @@ export class WarehousePage {
       ).length;
   }
   returnsCount() {
-    return this.store.state().movements.filter((movement) => movement.type === 'Devolución').length;
+    return Math.max(
+      this.store.state().liquidReturns.length,
+      this.store.state().movements.filter((movement) => movement.type === 'Devolución').length,
+    );
   }
   selectRequest(request: MaterialRequest) {
     this.deliveryAmounts = Object.fromEntries(
@@ -603,16 +674,26 @@ export class WarehousePage {
   registerReturn() {
     try {
       if (!this.canOperate()) throw new Error('El rol actual no puede registrar devoluciones.');
-      this.store.returnMaterial(
-        this.returnOrder,
-        this.returnProduct,
-        Number(this.returnQty),
-        this.returnVoucher,
+      this.store.registerLiquidReturnByWeight({
+        workOrderId: this.returnOrder,
+        productId: this.returnProduct,
+        voucherReference: this.returnVoucher,
+        grossGrams: Number(this.returnGross),
+        tareGrams: Number(this.returnTare),
+        materialState: this.returnState,
+        receiver: this.returnReceiver,
+      });
+      this.show(
+        this.returnState === 'Reutilizable'
+          ? 'Devolución por peso reincorporada al costo histórico del vale.'
+          : 'Material separado y trazado sin reincorporarlo como componente original.',
       );
-      this.show('Devolución registrada al costo histórico del vale.');
     } catch (error) {
       this.show(this.message(error));
     }
+  }
+  returnNet() {
+    return Math.max(0, Number(this.returnGross) - Number(this.returnTare));
   }
   registerTransfer() {
     try {

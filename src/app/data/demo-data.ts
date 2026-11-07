@@ -36,7 +36,7 @@ const product = (
 });
 
 export const DEMO_PRODUCTS: Product[] = [
-  product('DIS0011', 'LIJAS ORBITAL P-120 NORGRIP', 'Lijas', 67, 750, 'UN', '1066261131586'),
+  product('DIS0011', 'LIJAS ORBITAL P-120 NORGRIP', 'Lijas', 172, 750, 'UN', '1066261131586'),
   product('DIS0014', 'DISCO NORGRIP P240 X100 UND', 'Lijas', 14, 1000, 'UN', '7891345111116'),
   product('DIS0018', 'LIJA DISC NORTON P-400', 'Lijas', 320, 496.93, 'UN', '1066261123444'),
   product('DIS0008', 'LIJA DISCO NORTON P-80', 'Lijas', 313, 603.88, 'UN', '1066261131609'),
@@ -197,7 +197,7 @@ export const DEMO_PRODUCTS: Product[] = [
     '',
     'Demostración',
   ),
-  product('PQM0034', 'DILUYENTE DUCO', 'Diluyentes', 200, 1667, 'LT', '1066666661237'),
+  product('PQM0034', 'DILUYENTE DUCO', 'Diluyentes', 197.5, 1667.71, 'LT', '1066666661237'),
   product(
     'PQM0236',
     'REDUCER FAST DILUYENTE SIKKENS 1L',
@@ -274,6 +274,10 @@ export const DEMO_PRODUCTS: Product[] = [
   ),
   product('INS0003', 'COLADOR X190 PEQUEÑO', 'Insumos', 180, 42, 'UN', '1066000000012'),
   product('INS0021', 'ROBCLOTH PAÑO DC1000 X 200UND', 'Insumos', 40, 6500, 'UN', '8436033691175'),
+  product('PQM0125', '2236 WBASE HS MM ROJO LIMPO', 'Pinturas', 6.18, 42745.43, 'UN'),
+  product('PQM0126', '2246 WBASE HS MM NARANJA II', 'Pinturas', 4.92, 35941.87, 'UN'),
+  product('PQM0167', '3200 WBASE HS MM BLANCO AS', 'Pinturas', 58.07, 27014.24, 'UN'),
+  product('PQM0206', 'THINNER', 'Diluyentes', 0, 0, 'UN'),
 ];
 
 const stage = (
@@ -285,6 +289,7 @@ const stage = (
   actualHours: number,
   plannedStart = '',
   plannedEnd = '',
+  assignedWorkers: string[] = [owner],
 ): WorkStage => ({
   id,
   name,
@@ -294,14 +299,16 @@ const stage = (
   actualHours,
   plannedStart,
   plannedEnd,
+  assignedWorkers,
   status: progress >= 100 ? 'Completada' : progress > 0 ? 'En curso' : 'Pendiente',
 });
 
-const plan = (...lines: Array<[string, number]>): MaterialPlanLine[] =>
-  lines.map(([productId, estimatedQty]) => ({
+const plan = (...lines: Array<[string, number, string?]>): MaterialPlanLine[] =>
+  lines.map(([productId, estimatedQty, stageId]) => ({
     productId,
     estimatedQty,
     originalEstimatedQty: estimatedQty,
+    stageId,
   }));
 
 export const DEMO_WORK_ORDERS: WorkOrder[] = [
@@ -345,17 +352,23 @@ export const DEMO_WORK_ORDERS: WorkOrder[] = [
       stage('s1', 'Desarme y diagnóstico', 'Supervisor', 100, 14, 13, '2026-10-21', '2026-10-23'),
       stage('s2', 'Carrocería', 'Miguel', 80, 30, 26, '2026-10-23', '2026-10-30'),
       stage('s3', 'Preparación y lijado', 'Jhony', 62, 38, 24, '2026-10-28', '2026-11-05'),
-      stage('s4', 'Pintura', 'Carlos', 25, 28, 8, '2026-11-04', '2026-11-09'),
+      stage('s4', 'Pintura', 'Carlos y Jhony', 25, 28, 8, '2026-11-04', '2026-11-09', [
+        'Carlos',
+        'Jhony',
+      ]),
       stage('s5', 'Barniz y terminaciones', 'Miguel', 0, 22, 0, '2026-11-09', '2026-11-12'),
       stage('s6', 'Control de calidad', 'Supervisor', 0, 8, 0, '2026-11-12', '2026-11-14'),
     ],
     materialPlan: plan(
-      ['DIS0011', 10],
-      ['CIN0010', 8],
-      ['PQM0062', 5],
-      ['PNT0102', 12],
-      ['BAR-450HS', 8],
-      ['PQM0034', 10],
+      ['DIS0011', 10, 's3'],
+      ['CIN0010', 8, 's3'],
+      ['PQM0062', 5, 's3'],
+      ['PNT0102', 12, 's4'],
+      ['PQM0126', 0.6, 's4'],
+      ['PQM0167', 0.1, 's4'],
+      ['PQM0125', 0.5, 's4'],
+      ['PQM0034', 0.4, 's4'],
+      ['BAR-450HS', 8, 's5'],
     ),
     assignedWorkers: ['Jhony', 'Carlos', 'Miguel', 'Supervisor'],
     financialDataSimulated: true,
@@ -766,7 +779,7 @@ export const DEMO_MOVEMENTS: InventoryMovement[] = [
     'm1',
     '2026-10-24T10:12:00',
     'Despacho',
-    'DIS0011',
+    'DIS0014',
     8,
     -8,
     8,
@@ -920,15 +933,111 @@ export const DEMO_MOVEMENTS: InventoryMovement[] = [
     'ot-134',
     'V-00086',
   ),
+  movement(
+    'm15',
+    '2026-11-06T08:35:00',
+    'Despacho',
+    'PQM0126',
+    0.6,
+    -0.6,
+    0.6,
+    35941.87,
+    'ot-125',
+    'V-00102',
+  ),
+  movement(
+    'm16',
+    '2026-11-06T08:35:00',
+    'Despacho',
+    'PQM0167',
+    0.1,
+    -0.1,
+    0.1,
+    27014.24,
+    'ot-125',
+    'V-00102',
+  ),
+  movement(
+    'm17',
+    '2026-11-06T08:35:00',
+    'Despacho',
+    'PQM0125',
+    0.5,
+    -0.5,
+    0.5,
+    42745.43,
+    'ot-125',
+    'V-00102',
+  ),
+  movement(
+    'm18',
+    '2026-11-06T08:35:00',
+    'Despacho',
+    'PQM0034',
+    0.4,
+    -0.4,
+    0.4,
+    1667.71,
+    'ot-125',
+    'V-00102',
+  ),
 ];
 
 export function createDemoState(): DemoState {
   const state: DemoState = {
-    schemaVersion: 3,
+    schemaVersion: 6,
+    workFiles: [],
     products: structuredClone(DEMO_PRODUCTS),
     workOrders: structuredClone(DEMO_WORK_ORDERS),
     movements: structuredClone(DEMO_MOVEMENTS),
     vouchers: [
+      {
+        id: 'v102',
+        requestId: 'paint-station-seed',
+        number: 'V-00102',
+        createdAt: '2026-11-06T08:35:00',
+        workOrderId: 'ot-125',
+        requester: 'Antonella',
+        receiver: 'Antonella',
+        warehouseKeeper: 'Luis',
+        stage: 'Pintura · estación de mezcla',
+        status: 'Emitido',
+        lines: [
+          {
+            requestLineId: 'paint-2246',
+            productId: 'PQM0126',
+            requestedQuantity: 0.6,
+            quantity: 0.6,
+            unitCost: 35941.87,
+            sourceMovementId: 'm15',
+          },
+          {
+            requestLineId: 'paint-3200',
+            productId: 'PQM0167',
+            requestedQuantity: 0.1,
+            quantity: 0.1,
+            unitCost: 27014.24,
+            sourceMovementId: 'm16',
+          },
+          {
+            requestLineId: 'paint-2236',
+            productId: 'PQM0125',
+            requestedQuantity: 0.5,
+            quantity: 0.5,
+            unitCost: 42745.43,
+            sourceMovementId: 'm17',
+          },
+          {
+            requestLineId: 'paint-thinner',
+            productId: 'PQM0034',
+            requestedQuantity: 0.4,
+            quantity: 0.4,
+            unitCost: 1667.71,
+            sourceMovementId: 'm18',
+          },
+        ],
+        note: 'Entrega demostrativa a estación de mezcla. El consumo posterior no vuelve a descontar stock.',
+      },
       {
         id: 'v91',
         requestId: 'legacy-v91',
@@ -943,7 +1052,7 @@ export function createDemoState(): DemoState {
         lines: [
           {
             requestLineId: 'legacy-m1',
-            productId: 'DIS0011',
+            productId: 'DIS0014',
             requestedQuantity: 8,
             quantity: 8,
             unitCost: 750,
@@ -1143,22 +1252,32 @@ export function createDemoState(): DemoState {
         lines: [
           {
             id: 'r1-l1',
-            productId: 'DIS0011',
+            productId: 'DIS0014',
             requestedQuantity: 5,
+            authorizedQuantity: 5,
             deliveredQuantity: 0,
-            closedQuantity: 0,
+            closedQuantity: 5,
           },
           {
             id: 'r1-l2',
             productId: 'CIN0010',
             requestedQuantity: 2,
+            authorizedQuantity: 2,
             deliveredQuantity: 0,
-            closedQuantity: 0,
+            closedQuantity: 2,
           },
         ],
-        status: 'Pendiente',
+        status: 'Cerrada',
         note: 'Se requiere completar sector posterior.',
         excessJustification: 'Trabajo adicional detectado durante preparación.',
+        approval: {
+          required: true,
+          status: 'Aprobada',
+          requestedAt: '2026-11-03T09:40:00',
+          decidedAt: '2026-11-03T09:55:00',
+          supervisor: 'María · Supervisión',
+          reason: 'Trabajo adicional verificado en sector posterior.',
+        },
       },
       {
         id: 'r2',
@@ -1172,13 +1291,19 @@ export function createDemoState(): DemoState {
             id: 'r2-l1',
             productId: 'PNT0103',
             requestedQuantity: 2,
+            authorizedQuantity: 0,
             deliveredQuantity: 0,
             closedQuantity: 0,
           },
         ],
-        status: 'Pendiente',
+        status: 'En revisión',
         note: 'Retoque lateral derecho.',
         excessJustification: 'Retoque aprobado por supervisión.',
+        approval: {
+          required: true,
+          status: 'Pendiente',
+          requestedAt: '2026-11-03T10:05:00',
+        },
       },
     ],
     employees: [
@@ -1381,6 +1506,40 @@ export function createDemoState(): DemoState {
     pendingOperations: [],
     lastSync: '2026-11-03T10:15:00',
     role: 'Gerente',
+    colorProMappings: [
+      {
+        colorProCode: '2246',
+        productId: 'PQM0126',
+        gramsPerInventoryUnit: 1000,
+        status: 'Pendiente de validación',
+        note: 'Código coincidente; conversión de gramos por unidad aún provisional.',
+      },
+      {
+        colorProCode: '3200',
+        productId: 'PQM0167',
+        gramsPerInventoryUnit: 1000,
+        status: 'Pendiente de validación',
+        note: 'Código coincidente; conversión de gramos por unidad aún provisional.',
+      },
+      {
+        colorProCode: '2236',
+        productId: 'PQM0125',
+        gramsPerInventoryUnit: 1000,
+        status: 'Pendiente de validación',
+        note: 'Código coincidente; conversión de gramos por unidad aún provisional.',
+      },
+      {
+        colorProCode: 'THINNER W',
+        productId: 'PQM0034',
+        gramsPerInventoryUnit: 1000,
+        status: 'Pendiente de validación',
+        note: 'Mapeo provisional a DILUYENTE DUCO. FRAESPA debe confirmar producto y conversión antes de producción.',
+      },
+    ],
+    paintMixes: [],
+    liquidReturns: [],
+    workerSession: null,
+    processEvents: [],
   };
   for (const order of state.workOrders) {
     if (!order.financialDataSimulated) continue;

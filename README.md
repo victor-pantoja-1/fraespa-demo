@@ -55,6 +55,17 @@ npm test -- --watch=false
 - Centro de sincronización demostrativo, modo offline, cola local y restauración del seed.
 - Recorrido guiado de 12 escenas con línea base verificable, reconocimiento de operaciones nuevas y reinicio completo.
 - Diseño responsive con navegación móvil y operaciones rápidas.
+- Expedientes de trabajo con ID interno independiente de la OF, varias unidades y creación de OT con procesos, trabajadores compartidos y recetas versionadas.
+- Aplicación móvil demostrativa en `/movil`: PIN fijo de Jhony, tareas asignadas, inicio/pausa/reanudación, receta, solicitud y petición de término.
+- Aprobación de excesos por supervisión, con aprobación total, parcial o rechazo; el solicitante no puede aprobarse a sí mismo.
+- Bandeja de Antonella sincronizada con la sesión, bloqueo previo a aprobación, entregas parciales y vale imprimible.
+- Ruta `/demo-flujo` transformada en una presentación integral guiada o libre con teléfono, supervisión y bodega compartiendo estado.
+- Escenario verificable P-120: plan 10, solicitud 12, entrega 8, vale parcial, saldo 4 y stock operativo 120 → 112.
+- Seguimiento por proceso, ubicación física separada, avance ponderado, validación trazable y entrega final de la unidad.
+- Escenario complementario de pinturas conservado en `/demo-pinturas`.
+- Dos fórmulas preconfiguradas de ColorPro para `Red - 408A5` (concentrada y diluida), tratadas como alternativas excluyentes para un objetivo de 1 litro.
+- Mapeo configurable entre códigos ColorPro y productos Softland, con peso recomendado, peso real, sobrantes, pérdidas y costo calculado desde inventario.
+- Devolución de líquidos por peso bruto, tara y peso neto, con bloqueo de conversiones de gramos a litros cuando no existe una densidad validada.
 
 ## Datos de referencia
 
@@ -83,14 +94,32 @@ src/app/
 
 Esto reemplaza únicamente el estado local de la demo. Los Excel originales no se modifican.
 
+## Recorrido exacto de presentación
+
+1. Abrir `http://localhost:4200/demo-flujo`.
+2. Mantener **Modo guiado** y crear el expediente ficticio de Transportes ABC.
+3. Registrar la segunda unidad y vincular ABCD45 con OT-125.
+4. Configurar el proceso de lijado y su receta de 10 lijas P-120.
+5. Ingresar como Jhony con PIN `4085`, abrir la tarea e iniciar el proceso.
+6. Consultar la receta y enviar la solicitud de 12 unidades con motivo “superficie adicional”.
+7. Aprobar el exceso como Encargado de taller.
+8. Preparar y confirmar la entrega física de 8 unidades como Antonella.
+9. Comprobar el vale, el saldo pendiente de 4 unidades y el stock operativo de 112.
+10. Cerrar justificadamente el saldo, validar procesos y entregar la unidad.
+11. Pulsar **Restaurar escenario** para repetir el recorrido.
+
 ## Limitaciones de la demo
 
 - No hay autenticación productiva; el selector de rol demuestra visibilidad, no seguridad de backend.
-- La sincronización multi-dispositivo es simulada. IndexedDB sí guarda datos reales en el navegador.
+- La sincronización multi-dispositivo es simulada. Las vistas comparten IndexedDB dentro de una misma sesión; dispositivos físicos requieren backend.
 - No se conecta a facturación tributaria ni servicios fiscales.
 - Fotografías, documentos y firma digital productiva requieren almacenamiento y backend.
 - Las funciones complementarias de compras, herramientas, pinturas y calidad se muestran a nivel demostrativo, sin integración contable.
 - No se incluye importación automática de Excel; los datos usados fueron curados para evitar relaciones históricas no verificadas.
+- La lectura de las capturas de ColorPro es una simulación con fórmulas preconfiguradas. No existe OCR ni conexión directa con ColorPro.
+- El valor de venta mostrado en ColorPro no se usa como costo. Los costos de mezcla provienen de los productos de inventario mapeados.
+- El mapeo `THINNER W` es provisional y queda marcado para validación; la demo no afirma que el código de ColorPro coincida con un producto Softland.
+- El archivo `STOCK DE BODEGA AL 06-11-2026.xlsx` contiene un encabezado interno con fecha 30/11/2026. La demo muestra esta discrepancia y no presenta el stock como conciliado físicamente.
 
 ## Evolución hacia producción
 
@@ -118,9 +147,10 @@ Esto reemplaza únicamente el estado local de la demo. Los Excel originales no s
 
 ## Resultado de la auditoría final
 
-Ejecución del 4 de noviembre de 2026:
+Ejecución del 7 de noviembre de 2026:
 
-- `npm test -- --watch=false`: **22 pruebas aprobadas**.
+- `npm test -- --watch=false`: **37 pruebas aprobadas**.
 - `npm run build`: **compilación de producción aprobada**.
-- No se añadió una suite E2E porque el repositorio no incluye un runner de navegador. El flujo central está cubierto por pruebas integradas del estado y las reglas de negocio.
-- La revisión interactiva de escritorio, móvil y el diálogo real de impresión no pudo completarse en el entorno automatizado por una restricción del controlador de navegador local. La compilación responsive y la hoja `@media print` A4 sí forman parte del build; antes de la presentación debe realizarse una comprobación manual final en el navegador y la impresora/PDF objetivo.
+- No se añadió una suite E2E porque el repositorio no incluye un runner de navegador. El flujo integral, las autorizaciones, la entrega parcial, el cierre, ColorPro y las devoluciones por vale están cubiertos por pruebas integradas del estado.
+- La hoja `@media print` A4 permite imprimir o guardar el vale como PDF desde el diálogo del navegador.
+- La comprobación visual automatizada no pudo completarse: el controlador no logró vincular con confianza la URL del Chrome local. Antes de presentar, revisar manualmente `/demo-flujo` y `/movil` en 390×844, 768×1024 y 1440×900, además del diálogo de impresión/PDF.

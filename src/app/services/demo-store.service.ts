@@ -15,6 +15,7 @@ import {
 } from '../domain/calculations';
 import {
   AuditEvent,
+  ColorProMapping,
   CommercialAgreement,
   DirectCostEntry,
   DemoState,
@@ -22,11 +23,16 @@ import {
   MaterialRequest,
   MaterialRequestLine,
   MaterialVoucher,
+  PaintMix,
+  PaintPreparation,
   Role,
   TimeEntry,
   VehicleIntake,
   VoucherLine,
+  WorkFile,
+  WorkFileUnit,
   WorkOrder,
+  WorkStage,
 } from '../domain/models';
 
 interface StoredState {
@@ -46,12 +52,68 @@ interface DeliveryInput {
   lineId: string;
   quantity: number;
 }
+interface ApprovalInput {
+  requestId: string;
+  supervisor: string;
+  decision: 'Aprobar' | 'Aprobar parcialmente' | 'Rechazar';
+  authorizedByLine: Record<string, number>;
+  reason: string;
+}
 interface NewWorkOrderInput {
   intakeId: string;
   service: string;
   dueDate: string;
   assignedWorkers: string[];
   template: 'Pintura' | 'Reparación' | 'Preparación';
+}
+interface WorkFileInput {
+  client: string;
+  ofReference: string;
+  quoteReference: string;
+  service: string;
+  dueDate: string;
+  manager: string;
+  observations: string;
+  units: Array<Omit<WorkFileUnit, 'id' | 'workOrderId'>>;
+}
+interface FileWorkOrderInput {
+  workFileId: string;
+  unitId: string;
+  processes: Array<{
+    name: string;
+    workers: string[];
+    weight: number;
+    dependsOn?: string[];
+  }>;
+  materialPlan: Array<{ productId: string; estimatedQty: number; processIndex: number }>;
+  physicalArea: string;
+}
+interface PaintMixInput {
+  workOrderId: string;
+  ofReference: string;
+  stage: string;
+  colorCode: string;
+  preparation: PaintPreparation;
+  attachmentPath: string;
+  components: Array<{
+    colorProCode: string;
+    recommendedGrams: number;
+    actualGrams: number;
+    reusableGrams: number;
+    wasteGrams: number;
+  }>;
+  preparer: string;
+  batch: string;
+  observations: string;
+}
+interface LiquidReturnInput {
+  productId: string;
+  workOrderId: string;
+  voucherReference: string;
+  grossGrams: number;
+  tareGrams: number;
+  materialState: 'Reutilizable' | 'Mezcla identificada' | 'Contaminado' | 'Desperdicio';
+  receiver: string;
 }
 
 class FraespaDatabase extends Dexie {
@@ -76,7 +138,10 @@ export class DemoStore {
   );
   readonly pendingRequests = computed(() =>
     this.state().requests.filter(
-      (request) => request.status === 'Pendiente' || request.status === 'Parcial',
+      (request) =>
+        request.status === 'En revisión' ||
+        request.status === 'Pendiente' ||
+        request.status === 'Parcial',
     ),
   );
   readonly financialOrders = computed(() =>
@@ -90,13 +155,13 @@ export class DemoStore {
   private async hydrate(): Promise<void> {
     try {
       const stored = await this.database.states.get('main');
-      if (stored?.payload?.schemaVersion === 3) this.internalState.set(stored.payload);
+      if (stored?.payload?.schemaVersion === 6) this.internalState.set(stored.payload);
       else if (stored?.payload) this.internalState.set(createDemoState());
     } catch (error) {
       try {
         const fallback = localStorage.getItem('fraespa-demo-state');
         const parsed = fallback ? (JSON.parse(fallback) as DemoState) : null;
-        if (parsed?.schemaVersion === 3) this.internalState.set(parsed);
+        if (parsed?.schemaVersion === 6) this.internalState.set(parsed);
       } catch {
         this.storageError.set(
           `No fue posible recuperar el estado local: ${error instanceof Error ? error.message : 'error desconocido'}`,
@@ -202,6 +267,516 @@ export class DemoStore {
     }, false);
   }
 
+  recipeFor(orderId: string, stageId: string) {
+    const order = this.order(orderId);
+    if (!order) return [];
+    const scoped = order.materialPlan.filter((line) => line.stageId === stageId);
+    return scoped.length ? scoped : order.materialPlan;
+  }
+
+  processMaterialSummary(orderId: string, stage: string, productId: string) {
+    const requests = this.state().requests.filter(
+      (request) => request.workOrderId === orderId && request.stage === stage,
+    );
+    return {
+      requested: roundMoney(
+        requests
+          .flatMap((request) => request.lines)
+          .filter((line) => line.productId === productId)
+          .reduce((sum, line) => sum + line.requestedQuantity, 0),
+      ),
+      authorized: roundMoney(
+        requests
+          .flatMap((request) => request.lines)
+          .filter((line) => line.productId === productId)
+          .reduce((sum, line) => sum + line.authorizedQuantity, 0),
+      ),
+      delivered: roundMoney(
+        requests
+          .flatMap((request) => request.lines)
+          .filter((line) => line.productId === productId)
+          .reduce((sum, line) => sum + line.deliveredQuantity, 0),
+      ),
+      requesters: requests
+        .filter((request) => request.lines.some((line) => line.productId === productId))
+        .map((request) => ({
+          requester: request.requester,
+          quantity:
+            request.lines.find((line) => line.productId === productId)?.requestedQuantity ?? 0,
+          status: request.status,
+        })),
+    };
+  }
+
+  createWorkFile(input: WorkFileInput): string {
+    let fileId = '';
+    this.mutate(
+      (state) => {
+        if (
+          !input.client.trim() ||
+          !input.ofReference.trim() ||
+          !input.service.trim() ||
+          !input.dueDate ||
+          !input.manager.trim() ||
+          !input.units.length
+        )
+          throw new Error(
+            'Completa cliente, OF, servicio, responsable, entrega y al menos una unidad.',
+          );
+        const normalizedPlates = input.units.map((unit) => unit.licensePlate.trim().toUpperCase());
+        if (new Set(normalizedPlates).size !== normalizedPlates.length)
+          throw new Error('Las patentes del expediente no pueden repetirse.');
+        const sequence =
+          Math.max(0, ...state.workFiles.map((file) => Number(file.code.split('-').at(-1)) || 0)) +
+          1;
+        fileId = crypto.randomUUID();
+        const file: WorkFile = {
+          id: fileId,
+          code: `EXP-2026-${String(sequence).padStart(3, '0')}`,
+          client: input.client.trim(),
+          ofReference: input.ofReference.trim(),
+          quoteReference: input.quoteReference.trim(),
+          service: input.service.trim(),
+          createdAt: new Date().toISOString(),
+          dueDate: input.dueDate,
+          manager: input.manager.trim(),
+          observations: input.observations.trim(),
+          status: 'Activo',
+          units: input.units.map((unit) => ({
+            ...unit,
+            id: crypto.randomUUID(),
+            licensePlate: unit.licensePlate.trim().toUpperCase(),
+          })),
+        };
+        state.workFiles.unshift(file);
+        this.event(
+          state,
+          'Expediente creado',
+          `${file.code} · ${file.client} · ${file.units.length} unidad(es) · referencia ${file.ofReference}.`,
+          'success',
+        );
+      },
+      true,
+      'Creación de expediente',
+      input.ofReference,
+    );
+    return fileId;
+  }
+
+  addWorkFileUnit(workFileId: string, unitInput: Omit<WorkFileUnit, 'id' | 'workOrderId'>): string {
+    let unitId = '';
+    this.mutate(
+      (state) => {
+        const file = state.workFiles.find((item) => item.id === workFileId);
+        const plate = unitInput.licensePlate.trim().toUpperCase();
+        if (!file || !plate || !unitInput.vehicle.trim())
+          throw new Error('Completa expediente, patente y unidad.');
+        if (file.units.some((unit) => unit.licensePlate === plate))
+          throw new Error('La patente ya existe en el expediente.');
+        unitId = crypto.randomUUID();
+        file.units.push({ ...unitInput, id: unitId, licensePlate: plate });
+        this.event(
+          state,
+          'Unidad agregada al expediente',
+          `${plate} · ${file.code} · ${unitInput.service}.`,
+          'success',
+        );
+      },
+      true,
+      'Registro de unidad',
+      workFileId,
+    );
+    return unitId;
+  }
+
+  linkExistingOrderToWorkFile(workFileId: string, unitId: string, orderId: string): void {
+    this.mutate(
+      (state) => {
+        const file = state.workFiles.find((item) => item.id === workFileId);
+        const unit = file?.units.find((item) => item.id === unitId);
+        const order = state.workOrders.find((item) => item.id === orderId);
+        if (!file || !unit || !order) throw new Error('Expediente, unidad u OT no encontrados.');
+        if (unit.workOrderId && unit.workOrderId !== order.id)
+          throw new Error('La unidad ya tiene una OT asociada.');
+        unit.workOrderId = order.id;
+        order.workFileId = file.id;
+        order.workFileUnitId = unit.id;
+        order.licensePlate = unit.licensePlate;
+        order.physicalArea ??= 'Patio de producción';
+        this.event(
+          state,
+          'OT vinculada al expediente',
+          `${order.number} · ${unit.licensePlate} · ${file.code}.`,
+          'success',
+        );
+      },
+      true,
+      'Vinculación de OT',
+      `${workFileId} · ${orderId}`,
+    );
+  }
+
+  configurePresentationOrder(orderId: string): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === orderId);
+        const sanding = order?.stages.find((stage) => stage.id === 's3');
+        if (!order || !sanding) throw new Error('No se encontró la OT principal de presentación.');
+        sanding.name = 'Lijado';
+        sanding.owner = 'Jhony';
+        sanding.assignedWorkers = ['Jhony'];
+        sanding.status = 'Disponible';
+        sanding.progress = 0;
+        sanding.weight = 20;
+        const paint = order.stages.find((stage) => stage.id === 's4');
+        const finish = order.stages.find((stage) => stage.id === 's5');
+        const quality = order.stages.find((stage) => stage.id === 's6');
+        if (paint) paint.dependsOn = [sanding.id];
+        if (finish) finish.dependsOn = paint ? [paint.id] : [];
+        if (quality) quality.dependsOn = finish ? [finish.id] : [];
+        order.physicalArea = 'Bahía 3 · Preparación';
+        order.licensePlate = 'ABCD45';
+        order.assignedWorkers = [...new Set([...order.assignedWorkers, 'Jhony'])];
+        order.materialPlan = order.materialPlan.map((line) =>
+          line.productId === 'DIS0011'
+            ? { ...line, estimatedQty: 10, originalEstimatedQty: 10, stageId: sanding.id }
+            : line,
+        );
+        order.materialPlanRevision = (order.materialPlanRevision ?? 1) + 1;
+        this.event(
+          state,
+          'Plan operativo configurado',
+          `${order.number} · Lijado asignado a Jhony · receta P-120 de 10 unidades.`,
+          'success',
+        );
+      },
+      true,
+      'Planificación de OT',
+      orderId,
+    );
+  }
+
+  validatePresentationOrder(workOrderId: string, supervisor: string): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        if (!order || !supervisor.trim()) throw new Error('OT o supervisor inválido.');
+        const unresolved = state.requests.some(
+          (request) =>
+            request.workOrderId === order.id &&
+            ['En revisión', 'Pendiente', 'Parcial'].includes(request.status),
+        );
+        if (unresolved)
+          throw new Error('Cierra justificadamente los saldos de solicitudes antes de validar.');
+        const now = new Date().toISOString();
+        for (const stage of order.stages) {
+          stage.status = 'Finalizado';
+          stage.progress = 100;
+          stage.validatedAt = now;
+          stage.validatedBy = supervisor.trim();
+          this.event(
+            state,
+            'Proceso validado',
+            `${supervisor.trim()} validó ${stage.name} · ${order.number}.`,
+            'success',
+          );
+        }
+        order.progress = 100;
+        order.status = 'Terminada';
+      },
+      true,
+      'Validación final de procesos',
+      workOrderId,
+    );
+  }
+
+  createWorkOrderForWorkFileUnit(input: FileWorkOrderInput): string {
+    let orderId = '';
+    this.mutate(
+      (state) => {
+        const file = state.workFiles.find((item) => item.id === input.workFileId);
+        const unit = file?.units.find((item) => item.id === input.unitId);
+        if (!file || !unit || unit.workOrderId || !input.processes.length)
+          throw new Error('Selecciona una unidad libre y al menos un proceso.');
+        if (input.processes.some((process) => !process.name.trim() || !process.workers.length))
+          throw new Error('Cada proceso debe tener nombre y trabajadores asignados.');
+        const nextNumber =
+          Math.max(
+            134,
+            ...state.workOrders.map((item) => Number(item.number.replace(/\D/g, '')) || 0),
+          ) + 1;
+        orderId = `ot-${nextNumber}`;
+        const stages: WorkStage[] = input.processes.map((process, index) => ({
+          id: `${orderId}-p${index + 1}`,
+          name: process.name.trim(),
+          owner: process.workers.join(', '),
+          assignedWorkers: [...process.workers],
+          progress: 0,
+          plannedHours: 8,
+          actualHours: 0,
+          plannedStart: new Date().toISOString().slice(0, 10),
+          plannedEnd: file.dueDate,
+          status: index === 0 || !process.dependsOn?.length ? 'Disponible' : 'Pendiente',
+          weight: process.weight,
+          dependsOn: process.dependsOn,
+        }));
+        const order: WorkOrder = {
+          id: orderId,
+          number: `OT-${nextNumber}`,
+          referenceType: 'Demo',
+          sourceLabel: 'Creada desde expediente',
+          workFileId: file.id,
+          workFileUnitId: unit.id,
+          licensePlate: unit.licensePlate,
+          physicalArea: input.physicalArea.trim() || 'Patio de producción',
+          client: file.client,
+          vehicle: unit.licensePlate,
+          model: unit.model,
+          brand: unit.brand,
+          service: unit.service || file.service,
+          status: 'Pendiente de inicio',
+          economicStatus: 'Sin cotización',
+          progress: 0,
+          intakeDate: new Date().toISOString().slice(0, 10),
+          dueDate: file.dueDate,
+          salePrice: null,
+          approvedExtras: 0,
+          discounts: 0,
+          commercialAdjustments: 0,
+          materialBudget: 0,
+          laborBudget: 0,
+          serviceBudget: 0,
+          otherDirectBudget: 0,
+          productionOverheadBudget: 0,
+          adminBudget: 0,
+          externalServicesActual: 0,
+          otherDirectActual: 0,
+          productionOverheadActual: 0,
+          adminActual: 0,
+          pendingCostEstimate: 0,
+          laborRate: 0,
+          stages,
+          materialPlan: input.materialPlan.map((line) => ({
+            productId: line.productId,
+            estimatedQty: roundMoney(line.estimatedQty),
+            originalEstimatedQty: roundMoney(line.estimatedQty),
+            stageId: stages[line.processIndex]?.id,
+          })),
+          materialPlanRevision: 1,
+          assignedWorkers: [...new Set(input.processes.flatMap((process) => process.workers))],
+          financialDataSimulated: true,
+        };
+        state.workOrders.unshift(order);
+        unit.workOrderId = order.id;
+        file.status = 'En ejecución';
+        this.event(
+          state,
+          'OT creada desde expediente',
+          `${order.number} · ${unit.licensePlate} · ${stages.length} proceso(s).`,
+          'success',
+        );
+      },
+      true,
+      'Creación de OT desde expediente',
+      input.workFileId,
+    );
+    return orderId;
+  }
+
+  validateStage(workOrderId: string, stageId: string, supervisor: string): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        const stage = order?.stages.find((item) => item.id === stageId);
+        if (!order || !stage || !supervisor.trim())
+          throw new Error('Proceso o supervisor inválido.');
+        if (!['En revisión', 'En ejecución', 'En curso', 'Disponible'].includes(stage.status))
+          throw new Error('El proceso no está disponible para validación.');
+        stage.status = 'Finalizado';
+        stage.progress = 100;
+        stage.validatedAt = new Date().toISOString();
+        stage.validatedBy = supervisor.trim();
+        for (const candidate of order.stages) {
+          if (
+            candidate.status === 'Pendiente' &&
+            candidate.dependsOn?.length &&
+            candidate.dependsOn.every((dependency) =>
+              order.stages.some(
+                (completed) =>
+                  completed.id === dependency &&
+                  ['Finalizado', 'Completada'].includes(completed.status),
+              ),
+            )
+          )
+            candidate.status = 'Disponible';
+        }
+        const totalWeight = order.stages.reduce((sum, item) => sum + (item.weight ?? 1), 0);
+        order.progress = Math.round(
+          order.stages.reduce((sum, item) => sum + item.progress * (item.weight ?? 1), 0) /
+            Math.max(1, totalWeight),
+        );
+        this.event(
+          state,
+          'Proceso validado',
+          `${supervisor.trim()} validó ${stage.name} · ${order.number}.`,
+          'success',
+        );
+      },
+      true,
+      'Validación de proceso',
+      `${workOrderId} · ${stageId}`,
+    );
+  }
+
+  deliverWorkOrder(workOrderId: string, supervisor: string): void {
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === workOrderId);
+        if (!order || !supervisor.trim()) throw new Error('OT o supervisor inválido.');
+        if (order.stages.some((stage) => !['Finalizado', 'Completada'].includes(stage.status)))
+          throw new Error('Todos los procesos deben estar validados antes de entregar la unidad.');
+        const unresolved = state.requests.some(
+          (request) =>
+            request.workOrderId === order.id &&
+            ['En revisión', 'Pendiente', 'Parcial'].includes(request.status),
+        );
+        if (unresolved)
+          throw new Error('Resuelve o cierra justificadamente las solicitudes pendientes.');
+        order.status = 'Entregada';
+        order.progress = 100;
+        const file = state.workFiles.find((item) => item.id === order.workFileId);
+        if (
+          file &&
+          file.units.every(
+            (unit) =>
+              !unit.workOrderId ||
+              state.workOrders.find((item) => item.id === unit.workOrderId)?.status === 'Entregada',
+          )
+        )
+          file.status = 'Cerrado';
+        this.event(
+          state,
+          'Unidad entregada',
+          `${order.licensePlate ?? order.vehicle} · ${order.number} · validada por ${supervisor.trim()}.`,
+          'success',
+        );
+      },
+      true,
+      'Entrega de unidad',
+      workOrderId,
+    );
+  }
+
+  identifyWorker(workerName: string, pin: string): void {
+    this.mutate((state) => {
+      const employee = state.employees.find((item) => item.name === workerName);
+      if (!employee || pin !== '4085') throw new Error('Trabajador o PIN demostrativo inválido.');
+      state.workerSession = {
+        workerName,
+        authenticatedAt: new Date().toISOString(),
+      };
+      this.event(
+        state,
+        'Trabajador identificado',
+        `${workerName} ingresó a la experiencia móvil demostrativa.`,
+        'success',
+      );
+    }, false);
+  }
+
+  selectWorkerTask(workOrderId: string, stageId: string): void {
+    this.mutate((state) => {
+      const session = state.workerSession;
+      const order = state.workOrders.find((item) => item.id === workOrderId);
+      const stage = order?.stages.find((item) => item.id === stageId);
+      if (!session || !order || !stage)
+        throw new Error('Identifícate y selecciona una tarea válida.');
+      const assigned = stage.assignedWorkers ?? [stage.owner];
+      if (!assigned.includes(session.workerName))
+        throw new Error('El trabajador no está asignado a este proceso.');
+      session.selectedWorkOrderId = order.id;
+      session.selectedStageId = stage.id;
+    }, false);
+  }
+
+  startSelectedProcess(): void {
+    this.changeSelectedProcess('Inició');
+  }
+
+  pauseSelectedProcess(reason: string): void {
+    if (!reason.trim()) throw new Error('Indica brevemente por qué se pausa el proceso.');
+    this.changeSelectedProcess('Pausó', reason.trim());
+  }
+
+  resumeSelectedProcess(): void {
+    this.changeSelectedProcess('Reanudó');
+  }
+
+  requestFinishSelectedProcess(note: string): void {
+    this.changeSelectedProcess('Solicitó finalizar', note.trim());
+  }
+
+  private changeSelectedProcess(
+    action: 'Inició' | 'Pausó' | 'Reanudó' | 'Solicitó finalizar',
+    note = '',
+  ): void {
+    this.mutate(
+      (state) => {
+        const session = state.workerSession;
+        const order = state.workOrders.find((item) => item.id === session?.selectedWorkOrderId);
+        const stage = order?.stages.find((item) => item.id === session?.selectedStageId);
+        if (!session || !order || !stage)
+          throw new Error('Selecciona una tarea antes de continuar.');
+        const assigned = stage.assignedWorkers ?? [stage.owner];
+        if (!assigned.includes(session.workerName))
+          throw new Error('El trabajador no está asignado a este proceso.');
+        if (action === 'Inició') {
+          if (['Completada', 'Finalizado', 'En revisión'].includes(stage.status))
+            throw new Error('Este proceso no puede iniciarse en su estado actual.');
+          stage.status = 'En ejecución';
+          stage.startedAt ??= new Date().toISOString();
+          order.status = 'En proceso';
+        } else if (action === 'Pausó') {
+          if (stage.status !== 'En ejecución')
+            throw new Error('Solo se puede pausar un proceso en ejecución.');
+          stage.status = 'Pausado';
+          stage.pauseReason = note;
+          stage.pausedAt = new Date().toISOString();
+        } else if (action === 'Reanudó') {
+          if (stage.status !== 'Pausado')
+            throw new Error('Solo se puede reanudar un proceso pausado.');
+          stage.status = 'En ejecución';
+          stage.pauseReason = undefined;
+          stage.pausedAt = undefined;
+        } else {
+          if (stage.status !== 'En ejecución')
+            throw new Error('El proceso debe estar en ejecución para solicitar su finalización.');
+          stage.status = 'En revisión';
+          stage.requestedFinishAt = new Date().toISOString();
+          stage.requestedFinishBy = session.workerName;
+        }
+        state.processEvents.unshift({
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          workOrderId: order.id,
+          stageId: stage.id,
+          worker: session.workerName,
+          action,
+          note: note || undefined,
+        });
+        this.event(
+          state,
+          `Proceso: ${action.toLowerCase()}`,
+          `${session.workerName} · ${order.number} · ${stage.name}${note ? ` · ${note}` : ''}.`,
+          action === 'Pausó' ? 'warning' : 'info',
+        );
+      },
+      true,
+      'Operación de proceso',
+      action,
+    );
+  }
+
   createRequest(input: RequestInput): string {
     let requestId = '';
     this.mutate(
@@ -223,6 +798,7 @@ export class DemoStore {
             id: crypto.randomUUID(),
             productId: item.id,
             requestedQuantity: roundMoney(Number(line.quantity)),
+            authorizedQuantity: 0,
             deliveredQuantity: 0,
             closedQuantity: 0,
             note: line.note,
@@ -236,7 +812,7 @@ export class DemoStore {
             .filter(
               (request) =>
                 request.workOrderId === order.id &&
-                ['Pendiente', 'Parcial'].includes(request.status),
+                ['En revisión', 'Pendiente', 'Parcial'].includes(request.status),
             )
             .flatMap((request) => request.lines)
             .filter((pendingLine) => pendingLine.productId === line.productId)
@@ -263,6 +839,9 @@ export class DemoStore {
           throw new Error(
             'Agrega una justificación para materiales no planificados o cantidades que superan el plan.',
           );
+        const requiresApproval = hasUnplanned || hasExcess;
+        if (!requiresApproval)
+          normalizedLines.forEach((line) => (line.authorizedQuantity = line.requestedQuantity));
         requestId = crypto.randomUUID();
         state.requests.unshift({
           id: requestId,
@@ -272,14 +851,19 @@ export class DemoStore {
           receiver: input.receiver.trim(),
           stage: input.stage.trim(),
           lines: normalizedLines,
-          status: 'Pendiente',
+          status: requiresApproval ? 'En revisión' : 'Pendiente',
           note: input.note.trim(),
           excessJustification: input.excessJustification?.trim(),
+          approval: {
+            required: requiresApproval,
+            status: requiresApproval ? 'Pendiente' : 'No requerida',
+            requestedAt: requiresApproval ? new Date().toISOString() : undefined,
+          },
         });
         this.event(
           state,
-          hasExcess || hasUnplanned ? 'Solicitud con advertencia' : 'Solicitud registrada',
-          `${input.requester} solicitó ${normalizedLines.length} material(es) para ${order.number}.`,
+          hasExcess || hasUnplanned ? 'Solicitud enviada a supervisión' : 'Solicitud registrada',
+          `${input.requester} solicitó ${normalizedLines.length} material(es) para ${order.number} · ${input.stage}.`,
           hasExcess || hasUnplanned ? 'warning' : 'info',
         );
       },
@@ -288,6 +872,63 @@ export class DemoStore {
       `${input.lines.length} línea(s) para ${input.workOrderId}`,
     );
     return requestId;
+  }
+
+  reviewRequest(input: ApprovalInput): void {
+    this.mutate(
+      (state) => {
+        const request = state.requests.find((item) => item.id === input.requestId);
+        if (!request || request.status !== 'En revisión' || request.approval.status !== 'Pendiente')
+          throw new Error('La solicitud ya no está pendiente de supervisión.');
+        if (!input.supervisor.trim() || !input.reason.trim())
+          throw new Error('Registra supervisor y motivo de la decisión.');
+        if (input.supervisor.trim().toLowerCase().includes(request.requester.toLowerCase()))
+          throw new Error('El trabajador solicitante no puede aprobar su propio exceso.');
+
+        const now = new Date().toISOString();
+        request.approval.supervisor = input.supervisor.trim();
+        request.approval.decidedAt = now;
+        request.approval.reason = input.reason.trim();
+        if (input.decision === 'Rechazar') {
+          request.lines.forEach((line) => {
+            line.authorizedQuantity = 0;
+            line.closedQuantity = line.requestedQuantity;
+          });
+          request.approval.status = 'Rechazada';
+          request.status = 'Rechazada';
+        } else {
+          let hasReduction = false;
+          request.lines.forEach((line) => {
+            const proposed =
+              input.decision === 'Aprobar'
+                ? line.requestedQuantity
+                : Number(input.authorizedByLine[line.id] ?? 0);
+            if (!Number.isFinite(proposed) || proposed < 0 || proposed > line.requestedQuantity)
+              throw new Error('La cantidad autorizada debe estar entre cero y lo solicitado.');
+            line.authorizedQuantity = roundMoney(proposed);
+            line.closedQuantity = roundMoney(line.requestedQuantity - line.authorizedQuantity);
+            if (line.authorizedQuantity < line.requestedQuantity) hasReduction = true;
+          });
+          if (!request.lines.some((line) => line.authorizedQuantity > 0))
+            throw new Error('La aprobación parcial debe autorizar al menos una cantidad.');
+          request.approval.status = hasReduction ? 'Aprobada parcial' : 'Aprobada';
+          request.status = 'Pendiente';
+        }
+        this.event(
+          state,
+          `Solicitud ${request.approval.status.toLowerCase()}`,
+          `${input.supervisor.trim()} decidió sobre la solicitud de ${request.requester}: ${input.reason.trim()}`,
+          request.approval.status === 'Rechazada'
+            ? 'danger'
+            : request.approval.status === 'Aprobada parcial'
+              ? 'warning'
+              : 'success',
+        );
+      },
+      true,
+      'Aprobación de solicitud',
+      `${input.requestId} · ${input.decision}`,
+    );
   }
 
   dispatchRequest(
@@ -941,6 +1582,368 @@ export class DemoStore {
     );
   }
 
+  updateColorProMapping(
+    colorProCode: string,
+    productId: string,
+    gramsPerInventoryUnit: number,
+    status: ColorProMapping['status'],
+  ): void {
+    this.mutate(
+      (state) => {
+        const mapping = state.colorProMappings.find((item) => item.colorProCode === colorProCode);
+        const product = state.products.find((item) => item.id === productId);
+        if (!mapping || !product || !isValidQuantity(gramsPerInventoryUnit))
+          throw new Error('Selecciona un producto y una conversión válida.');
+        mapping.productId = product.id;
+        mapping.gramsPerInventoryUnit = gramsPerInventoryUnit;
+        mapping.status = status;
+        mapping.note =
+          status === 'Validada para demo'
+            ? 'Relación confirmada para esta validación. La integración productiva sigue pendiente.'
+            : 'Relación provisional; requiere validación de código y conversión antes de producción.';
+        this.event(
+          state,
+          'Mapeo ColorPro actualizado',
+          `${colorProCode} → ${product.code} · ${status}.`,
+          status === 'Validada para demo' ? 'success' : 'warning',
+        );
+      },
+      true,
+      'Mapeo ColorPro',
+      `${colorProCode} → ${productId}`,
+    );
+  }
+
+  confirmPaintMix(input: PaintMixInput): string {
+    let mixId = '';
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === input.workOrderId);
+        if (
+          !order ||
+          !input.ofReference.trim() ||
+          !input.stage.trim() ||
+          !input.colorCode.trim() ||
+          !input.preparer.trim() ||
+          !input.batch.trim() ||
+          !input.components.length
+        )
+          throw new Error('Completa OF, OT, proceso, color, preparador, lote y fórmula.');
+        if (
+          state.paintMixes.some(
+            (mix) =>
+              mix.workOrderId === order.id &&
+              mix.batch.toLowerCase() === input.batch.trim().toLowerCase(),
+          )
+        )
+          throw new Error('El lote de mezcla ya fue confirmado para esta OT.');
+
+        const prepared = input.components.map((component, sequence) => {
+          const mapping = state.colorProMappings.find(
+            (item) => item.colorProCode === component.colorProCode,
+          );
+          const product = state.products.find((item) => item.id === mapping?.productId);
+          if (!mapping || !product)
+            throw new Error(`Falta mapear ${component.colorProCode} con un producto Softland.`);
+          if (
+            !isValidQuantity(component.recommendedGrams) ||
+            !isValidQuantity(component.actualGrams) ||
+            !Number.isFinite(component.reusableGrams) ||
+            !Number.isFinite(component.wasteGrams) ||
+            component.reusableGrams < 0 ||
+            component.wasteGrams < 0 ||
+            component.reusableGrams + component.wasteGrams > component.actualGrams
+          )
+            throw new Error(
+              `En ${component.colorProCode}, el sobrante reutilizable y el desperdicio no pueden superar el peso real.`,
+            );
+          const incorporatedGrams = roundMoney(
+            component.actualGrams - component.reusableGrams - component.wasteGrams,
+          );
+          if (incorporatedGrams <= 0)
+            throw new Error(
+              `La cantidad incorporada de ${component.colorProCode} debe ser mayor a cero.`,
+            );
+          const consumedGrams = roundMoney(component.actualGrams - component.reusableGrams);
+          const inventoryQuantity =
+            Math.round((consumedGrams / mapping.gramsPerInventoryUnit) * 10000) / 10000;
+          return {
+            sequence,
+            input: component,
+            mapping,
+            product,
+            incorporatedGrams,
+            consumedGrams,
+            inventoryQuantity,
+            deliveredAvailableQuantity: 0,
+            consumedFromDeliveredQuantity: 0,
+            directIssueQuantity: 0,
+            registeredCost: 0,
+          };
+        });
+
+        const groups = new Map<string, typeof prepared>();
+        for (const item of prepared)
+          groups.set(item.product.id, [...(groups.get(item.product.id) ?? []), item]);
+
+        const directIssues = new Map<string, number>();
+        for (const [productId, items] of groups) {
+          const product = items[0].product;
+          const consumedBefore = state.paintMixes
+            .filter((mix) => mix.workOrderId === order.id)
+            .flatMap((mix) => mix.components)
+            .filter((item) => item.productId === productId)
+            .reduce((sum, item) => sum + item.inventoryQuantity, 0);
+          const lots = allocationLots(order.id, productId, state.movements)
+            .sort((a, b) => a.movement.createdAt.localeCompare(b.movement.createdAt))
+            .map((lot) => ({ ...lot }));
+          let priorConsumption = consumedBefore;
+          for (const lot of lots) {
+            const used = Math.min(priorConsumption, lot.remainingQuantity);
+            lot.remainingQuantity = Math.max(0, lot.remainingQuantity - used);
+            priorConsumption -= used;
+          }
+          const groupNeed = items.reduce((sum, item) => sum + item.inventoryQuantity, 0);
+          const deliveredAvailable = lots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
+          const directTotal = Math.max(0, groupNeed - deliveredAvailable);
+          if (directTotal > stockForProduct(product, state.movements))
+            throw new Error(`Stock insuficiente para completar la mezcla de ${product.code}.`);
+
+          for (const item of items.sort((a, b) => a.sequence - b.sequence)) {
+            item.deliveredAvailableQuantity =
+              Math.round(lots.reduce((sum, lot) => sum + lot.remainingQuantity, 0) * 10000) / 10000;
+            let need = item.inventoryQuantity;
+            let historicalCost = 0;
+            for (const lot of lots) {
+              if (need <= 0) break;
+              const used = Math.min(need, lot.remainingQuantity);
+              historicalCost += used * lot.movement.unitCost;
+              lot.remainingQuantity -= used;
+              need -= used;
+              item.consumedFromDeliveredQuantity += used;
+            }
+            item.directIssueQuantity = Math.round(Math.max(0, need) * 10000) / 10000;
+            item.consumedFromDeliveredQuantity =
+              Math.round(item.consumedFromDeliveredQuantity * 10000) / 10000;
+            item.registeredCost = roundMoney(
+              historicalCost + item.directIssueQuantity * product.unitCost,
+            );
+          }
+          directIssues.set(
+            productId,
+            Math.round(items.reduce((sum, item) => sum + item.directIssueQuantity, 0) * 10000) /
+              10000,
+          );
+        }
+
+        const now = new Date().toISOString();
+        mixId = crypto.randomUUID();
+        for (const [productId, quantity] of directIssues) {
+          if (quantity <= 0) continue;
+          const product = state.products.find((item) => item.id === productId)!;
+          state.movements.unshift({
+            id: crypto.randomUUID(),
+            createdAt: now,
+            type: 'Despacho',
+            productId,
+            quantity,
+            stockDelta: -quantity,
+            allocationDelta: quantity,
+            unitCost: product.unitCost,
+            workOrderId: order.id,
+            reference: input.batch.trim(),
+            user: `${input.preparer.trim()} · Mezcla`,
+            note: 'Necesidad consolidada por producto; solo se descontó lo no entregado previamente.',
+          });
+        }
+        const components = prepared.map((item) => {
+          return {
+            colorProCode: item.input.colorProCode,
+            productId: item.product.id,
+            recommendedGrams: item.input.recommendedGrams,
+            actualGrams: item.input.actualGrams,
+            reusableGrams: item.input.reusableGrams,
+            wasteGrams: item.input.wasteGrams,
+            incorporatedGrams: item.incorporatedGrams,
+            consumedGrams: item.consumedGrams,
+            inventoryQuantity: item.inventoryQuantity,
+            unitCost:
+              item.inventoryQuantity > 0
+                ? roundMoney(item.registeredCost / item.inventoryQuantity)
+                : item.product.unitCost,
+            registeredCost: item.registeredCost,
+            deliveredAvailableQuantity: item.deliveredAvailableQuantity,
+            consumedFromDeliveredQuantity: item.consumedFromDeliveredQuantity,
+            directIssueQuantity: item.directIssueQuantity,
+          };
+        });
+        const inventoryCost = roundMoney(
+          components.reduce((sum, item) => sum + item.registeredCost, 0),
+        );
+        const pendingReconciliation = prepared.some(
+          (item) => item.mapping.status === 'Pendiente de validación',
+        );
+        const mix: PaintMix = {
+          id: mixId,
+          createdAt: now,
+          workOrderId: order.id,
+          ofReference: input.ofReference.trim(),
+          stage: input.stage.trim(),
+          colorCode: input.colorCode.trim(),
+          preparation: input.preparation,
+          targetLiters: 1,
+          attachmentPath: input.attachmentPath,
+          extractionMode: 'Simulación demostrativa',
+          components,
+          preparer: input.preparer.trim(),
+          batch: input.batch.trim(),
+          observations: input.observations.trim(),
+          inventoryCost,
+          pendingReconciliation,
+          status: 'Confirmada',
+        };
+        state.paintMixes.unshift(mix);
+        this.refreshAutomaticPending(state, order);
+        this.event(
+          state,
+          'Mezcla de pintura confirmada',
+          `${input.batch.trim()} · ${input.colorCode.trim()} · ${input.preparation}. ${components.reduce((sum, item) => sum + item.actualGrams, 0).toFixed(1)} g registrados sin duplicar entregas previas.`,
+          pendingReconciliation ? 'warning' : 'success',
+        );
+      },
+      true,
+      'Preparación de pintura',
+      `${input.colorCode} · ${input.batch}`,
+    );
+    return mixId;
+  }
+
+  registerLiquidReturnByWeight(input: LiquidReturnInput): string {
+    let returnId = '';
+    this.mutate(
+      (state) => {
+        const order = state.workOrders.find((item) => item.id === input.workOrderId);
+        const product = state.products.find((item) => item.id === input.productId);
+        const gross = Number(input.grossGrams);
+        const tare = Number(input.tareGrams);
+        const net = Math.round((gross - tare) * 10) / 10;
+        if (
+          !order ||
+          !product ||
+          !input.voucherReference ||
+          !input.receiver.trim() ||
+          !Number.isFinite(net) ||
+          net <= 0
+        )
+          throw new Error('Completa producto, vale, pesos válidos y responsable de recepción.');
+
+        let inventoryQuantity: number | null = null;
+        let densityApplied: number | undefined;
+        if (input.materialState === 'Reutilizable') {
+          if (product.unit === 'KG') inventoryQuantity = net / 1000;
+          else if (product.unit === 'LT') {
+            if (!product.densityGramsPerMl || product.densityStatus !== 'Validada')
+              throw new Error(
+                'No se puede convertir gramos a litros sin una densidad validada para el producto.',
+              );
+            densityApplied = product.densityGramsPerMl;
+            inventoryQuantity = net / (product.densityGramsPerMl * 1000);
+          } else {
+            const mapping = state.colorProMappings.find(
+              (item) => item.productId === product.id && item.status === 'Validada para demo',
+            );
+            if (!mapping)
+              throw new Error(
+                'La unidad de inventario no tiene una conversión por pesaje validada.',
+              );
+            inventoryQuantity = net / mapping.gramsPerInventoryUnit;
+          }
+          inventoryQuantity = Math.round(inventoryQuantity * 10000) / 10000;
+          const alreadyConsumed = state.paintMixes
+            .filter((mix) => mix.workOrderId === order.id)
+            .flatMap((mix) => mix.components)
+            .filter((item) => item.productId === product.id)
+            .reduce((sum, item) => sum + item.inventoryQuantity, 0);
+          const allLots = allocationLots(order.id, product.id, state.movements)
+            .sort((a, b) => a.movement.createdAt.localeCompare(b.movement.createdAt))
+            .map((lot) => ({ ...lot }));
+          let consumptionToAssign = alreadyConsumed;
+          for (const lot of allLots) {
+            const used = Math.min(consumptionToAssign, lot.remainingQuantity);
+            lot.remainingQuantity = Math.max(0, lot.remainingQuantity - used);
+            consumptionToAssign -= used;
+          }
+          const voucherLots = allLots.filter(
+            (lot) => lot.movement.reference === input.voucherReference,
+          );
+          if (!voucherLots.length)
+            throw new Error('No se encontró saldo del vale original para ese producto.');
+          const voucherAvailable =
+            Math.round(voucherLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0) * 10000) /
+            10000;
+          if (inventoryQuantity > voucherAvailable)
+            throw new Error(
+              `La devolución supera el saldo recuperable del vale ${input.voucherReference} (${voucherAvailable.toFixed(4)} ${product.unit}).`,
+            );
+          let remaining = inventoryQuantity;
+          for (const lot of voucherLots) {
+            if (remaining <= 0) break;
+            const used = Math.min(remaining, lot.remainingQuantity);
+            state.movements.unshift({
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              type: 'Devolución',
+              productId: product.id,
+              quantity: used,
+              stockDelta: used,
+              allocationDelta: -used,
+              unitCost: lot.movement.unitCost,
+              workOrderId: order.id,
+              reference: `DEV-PESO-${Date.now().toString().slice(-6)}`,
+              user: input.receiver.trim(),
+              note: `Peso neto ${net} g vinculado a ${input.voucherReference}.`,
+              sourceMovementId: lot.movement.id,
+              sourceVoucherId: lot.movement.sourceVoucherId,
+            });
+            remaining -= used;
+          }
+          this.refreshAutomaticPending(state, order);
+        }
+
+        returnId = crypto.randomUUID();
+        state.liquidReturns.unshift({
+          id: returnId,
+          createdAt: new Date().toISOString(),
+          productId: product.id,
+          workOrderId: order.id,
+          voucherReference: input.voucherReference,
+          grossGrams: gross,
+          tareGrams: tare,
+          netGrams: net,
+          inventoryUnit: product.unit,
+          inventoryQuantity,
+          materialState: input.materialState,
+          receiver: input.receiver.trim(),
+          densityApplied,
+          result:
+            input.materialState === 'Reutilizable' ? 'Reincorporado' : 'Separado sin reincorporar',
+        });
+        this.event(
+          state,
+          input.materialState === 'Reutilizable'
+            ? 'Devolución por peso reincorporada'
+            : 'Material separado sin reincorporar',
+          `${net} g de ${product.code} · ${input.materialState}.`,
+          input.materialState === 'Reutilizable' ? 'success' : 'warning',
+        );
+      },
+      true,
+      'Devolución por pesaje',
+      `${input.productId} · ${input.materialState}`,
+    );
+    return returnId;
+  }
+
   recordHours(
     workOrderId: string,
     stageId: string,
@@ -1136,10 +2139,12 @@ export class DemoStore {
         if (!order || !stage || !Number.isFinite(progress) || progress < 0 || progress > 100)
           throw new Error('Avance inválido.');
         stage.progress = progress;
-        stage.status = progress >= 100 ? 'Completada' : progress > 0 ? 'En curso' : 'Pendiente';
+        stage.status =
+          progress >= 100 ? 'En revisión' : progress > 0 ? 'En ejecución' : 'Pendiente';
+        const totalWeight = order.stages.reduce((sum, item) => sum + (item.weight ?? 1), 0);
         order.progress = Math.round(
-          order.stages.reduce((sum, item) => sum + item.progress, 0) /
-            Math.max(1, order.stages.length),
+          order.stages.reduce((sum, item) => sum + item.progress * (item.weight ?? 1), 0) /
+            Math.max(1, totalWeight),
         );
         this.event(
           state,

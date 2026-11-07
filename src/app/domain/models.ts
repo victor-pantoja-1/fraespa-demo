@@ -31,12 +31,80 @@ export interface Product {
   costBasis: string;
   location: string;
   source: 'Excel verificado' | 'Demostración';
+  densityGramsPerMl?: number;
+  densityStatus?: 'Validada' | 'Pendiente de validación';
+}
+
+export type PaintPreparation = 'Concentrada' | 'Diluida';
+export type MappingStatus = 'Validada para demo' | 'Pendiente de validación';
+
+export interface ColorProMapping {
+  colorProCode: string;
+  productId: string;
+  gramsPerInventoryUnit: number;
+  status: MappingStatus;
+  note: string;
+}
+
+export interface PaintMixComponent {
+  colorProCode: string;
+  productId: string;
+  recommendedGrams: number;
+  actualGrams: number;
+  reusableGrams: number;
+  wasteGrams: number;
+  incorporatedGrams: number;
+  consumedGrams: number;
+  inventoryQuantity: number;
+  unitCost: number;
+  registeredCost: number;
+  deliveredAvailableQuantity: number;
+  consumedFromDeliveredQuantity: number;
+  directIssueQuantity: number;
+}
+
+export interface PaintMix {
+  id: string;
+  createdAt: string;
+  workOrderId: string;
+  ofReference: string;
+  stage: string;
+  colorCode: string;
+  preparation: PaintPreparation;
+  targetLiters: number;
+  attachmentPath: string;
+  extractionMode: 'Simulación demostrativa';
+  components: PaintMixComponent[];
+  preparer: string;
+  batch: string;
+  observations: string;
+  inventoryCost: number;
+  pendingReconciliation: boolean;
+  status: 'Confirmada';
+}
+
+export interface LiquidReturnRecord {
+  id: string;
+  createdAt: string;
+  productId: string;
+  workOrderId: string;
+  voucherReference: string;
+  grossGrams: number;
+  tareGrams: number;
+  netGrams: number;
+  inventoryUnit: string;
+  inventoryQuantity: number | null;
+  materialState: 'Reutilizable' | 'Mezcla identificada' | 'Contaminado' | 'Desperdicio';
+  receiver: string;
+  densityApplied?: number;
+  result: 'Reincorporado' | 'Separado sin reincorporar';
 }
 
 export interface MaterialPlanLine {
   productId: string;
   estimatedQty: number;
   originalEstimatedQty: number;
+  stageId?: string;
   note?: string;
 }
 
@@ -50,7 +118,27 @@ export interface WorkStage {
   plannedStart: string;
   plannedEnd: string;
   blockedReason?: string;
-  status: 'Pendiente' | 'En curso' | 'Completada' | 'Bloqueada';
+  assignedWorkers?: string[];
+  requestedFinishAt?: string;
+  requestedFinishBy?: string;
+  pauseReason?: string;
+  startedAt?: string;
+  pausedAt?: string;
+  validatedAt?: string;
+  validatedBy?: string;
+  weight?: number;
+  dependsOn?: string[];
+  status:
+    | 'Pendiente'
+    | 'Disponible'
+    | 'En curso'
+    | 'En ejecución'
+    | 'En revisión'
+    | 'Completada'
+    | 'Finalizado'
+    | 'Pausado'
+    | 'Reabierto'
+    | 'Bloqueada';
 }
 
 export interface PendingCostBreakdown {
@@ -84,6 +172,10 @@ export interface WorkOrder {
   sourceLabel: string;
   intakeId?: string;
   agreementId?: string;
+  workFileId?: string;
+  workFileUnitId?: string;
+  licensePlate?: string;
+  physicalArea?: string;
   client: string;
   vehicle: string;
   model: string;
@@ -179,9 +271,19 @@ export interface MaterialRequestLine {
   id: string;
   productId: string;
   requestedQuantity: number;
+  authorizedQuantity: number;
   deliveredQuantity: number;
   closedQuantity: number;
   note?: string;
+}
+
+export interface RequestApproval {
+  required: boolean;
+  status: 'No requerida' | 'Pendiente' | 'Aprobada' | 'Aprobada parcial' | 'Rechazada';
+  requestedAt?: string;
+  decidedAt?: string;
+  supervisor?: string;
+  reason?: string;
 }
 
 export interface MaterialRequest {
@@ -192,9 +294,27 @@ export interface MaterialRequest {
   stage: string;
   receiver: string;
   lines: MaterialRequestLine[];
-  status: 'Pendiente' | 'Parcial' | 'Entregada' | 'Cerrada' | 'Rechazada';
+  status: 'En revisión' | 'Pendiente' | 'Parcial' | 'Entregada' | 'Cerrada' | 'Rechazada';
   note: string;
   excessJustification?: string;
+  approval: RequestApproval;
+}
+
+export interface WorkerSession {
+  workerName: string;
+  authenticatedAt: string;
+  selectedWorkOrderId?: string;
+  selectedStageId?: string;
+}
+
+export interface ProcessEvent {
+  id: string;
+  createdAt: string;
+  workOrderId: string;
+  stageId: string;
+  worker: string;
+  action: 'Inició' | 'Pausó' | 'Reanudó' | 'Solicitó finalizar';
+  note?: string;
 }
 
 export interface Employee {
@@ -251,6 +371,31 @@ export interface VehicleIntake {
   workOrderId?: string;
 }
 
+export interface WorkFileUnit {
+  id: string;
+  licensePlate: string;
+  vehicle: string;
+  brand: string;
+  model: string;
+  service: string;
+  workOrderId?: string;
+}
+
+export interface WorkFile {
+  id: string;
+  code: string;
+  client: string;
+  ofReference: string;
+  quoteReference: string;
+  service: string;
+  createdAt: string;
+  dueDate: string;
+  manager: string;
+  observations: string;
+  status: 'Borrador' | 'Activo' | 'En ejecución' | 'Cerrado';
+  units: WorkFileUnit[];
+}
+
 export interface SyncOperation {
   id: string;
   createdAt: string;
@@ -261,6 +406,7 @@ export interface SyncOperation {
 
 export interface DemoState {
   schemaVersion: number;
+  workFiles: WorkFile[];
   products: Product[];
   workOrders: WorkOrder[];
   movements: InventoryMovement[];
@@ -277,6 +423,11 @@ export interface DemoState {
   pendingOperations: SyncOperation[];
   lastSync: string;
   role: Role;
+  colorProMappings: ColorProMapping[];
+  paintMixes: PaintMix[];
+  liquidReturns: LiquidReturnRecord[];
+  workerSession: WorkerSession | null;
+  processEvents: ProcessEvent[];
 }
 
 export interface Profitability {
